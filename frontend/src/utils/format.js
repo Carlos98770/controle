@@ -35,3 +35,30 @@ export const polynomialLatex = (values = []) =>
     })
     .filter(Boolean)
     .join('') || '0'
+
+export const factorizedPolynomialLatex = (values = [], roots = []) => {
+  if (!values.length) return '0'
+
+  const leading = Number(values[0])
+  const coefficient = Math.abs(leading - 1) < 1e-10
+    ? ''
+    : Math.abs(leading + 1) < 1e-10
+      ? '-'
+      : formatNumber(leading)
+
+  const factors = roots.map(({ real, imag }) => {
+    const realValue = Number(real)
+    const imagValue = Number(imag)
+
+    if (Math.abs(imagValue) <= 0.001) {
+      if (Math.abs(realValue) < 0.0005) return 's'
+      return realValue > 0
+        ? `\\left(s-${formatNumber(realValue)}\\right)`
+        : `\\left(s+${formatNumber(Math.abs(realValue))}\\right)`
+    }
+
+    return `\\left(s-\\left(${complexLatex({ real: realValue, imag: imagValue })}\\right)\\right)`
+  })
+
+  return `${coefficient}${factors.join('\\,') || '1'}`
+}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { BlockMath, InlineMath } from 'react-katex'
-import { complexLatex, formatNumber, polynomialLatex } from '../utils/format'
+import { complexLatex, factorizedPolynomialLatex, formatNumber, polynomialLatex } from '../utils/format'
 
 function Formula({ children, className = '' }) {
   return (
@@ -75,6 +75,9 @@ function RouthTable({ data }) {
 
 function StepsContent({ data }) {
   const details = data.details
+  const factorizedDenominator = factorizedPolynomialLatex(data.denominator, data.poles)
+  const factorizedNumerator = factorizedPolynomialLatex(data.numerator, data.zeros)
+  const gainFactor = factorizedNumerator === '1' ? 'K' : `K\\,\\left(${factorizedNumerator}\\right)`
   const roots = (values) => values.map((value, index) => (
     <MathChip key={index} math={complexLatex(value)} />
   ))
@@ -90,6 +93,7 @@ function StepsContent({ data }) {
         <p>Para a realimentação negativa, isolamos a equação que define os polos do sistema em malha fechada.</p>
         <Formula>{`1+K\\,L(s)=0`}</Formula>
         <Formula>{`\\begin{aligned}P(s,K)&=D(s)+K\\,N(s)\\\\&=${polynomialLatex(data.denominator)}+K\\left(${polynomialLatex(data.numerator)}\\right)=0\\end{aligned}`}</Formula>
+        <Formula>{`\\begin{aligned}P(s,K)&=D(s)+K\\,N(s)\\\\&=${factorizedDenominator}+${gainFactor}=0\\end{aligned}`}</Formula>
       </Step>
 
       <Step number={2} title="Identificar polos e zeros">
