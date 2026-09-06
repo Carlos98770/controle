@@ -81,12 +81,15 @@ function StepsContent({ data }) {
 
   return (
     <>
-      <Step number={1} title="Montar a função de transferência de malha aberta">
+      <Step number={1} title="Montar a função de transferência e o polinômio característico">
         <p>Partimos dos dados informados e multiplicamos numeradores e denominadores.</p>
         <Formula>{`G(s)=\\frac{${polynomialLatex(details.nG)}}{${polynomialLatex(details.dG)}}`}</Formula>
         <Formula>{`H(s)=\\frac{${polynomialLatex(details.nH)}}{${polynomialLatex(details.dH)}}`}</Formula>
         <Formula>{`\\begin{aligned}N(s)&=N_G(s)N_H(s)\\\\&=${polynomialLatex(details.nG)}\\cdot${polynomialLatex(details.nH)}\\\\&=${polynomialLatex(data.numerator)}\\end{aligned}`}</Formula>
         <Formula>{`\\begin{aligned}D(s)&=D_G(s)D_H(s)\\\\&=${polynomialLatex(details.dG)}\\cdot${polynomialLatex(details.dH)}\\\\&=${polynomialLatex(data.denominator)}\\end{aligned}`}</Formula>
+        <p>Para a realimentação negativa, isolamos a equação que define os polos do sistema em malha fechada.</p>
+        <Formula>{`1+K\\,L(s)=0`}</Formula>
+        <Formula>{`\\begin{aligned}P(s,K)&=D(s)+K\\,N(s)\\\\&=${polynomialLatex(data.denominator)}+K\\left(${polynomialLatex(data.numerator)}\\right)=0\\end{aligned}`}</Formula>
       </Step>
 
       <Step number={2} title="Identificar polos e zeros">
@@ -201,7 +204,8 @@ export default function StepCarousel({ data }) {
 
   useEffect(() => setCurrent(0), [data])
 
-  const go = (next) => setCurrent(Math.max(0, Math.min(11, next)))
+  const totalSteps = 12
+  const go = (next) => setCurrent(Math.max(0, Math.min(totalSteps - 1, next)))
   const onPointerDown = (event) => { startX.current = event.clientX }
   const onPointerUp = (event) => {
     if (startX.current == null) return
@@ -225,17 +229,17 @@ export default function StepCarousel({ data }) {
         onPointerUp={onPointerUp}
         onPointerCancel={() => { startX.current = null }}
       >
-        <div className="steps-track" style={{ transform: `translateX(-${current * (100 / 12)}%)` }}>
+        <div className="steps-track" style={{ transform: `translateX(-${current * (100 / totalSteps)}%)` }}>
           <StepsContent data={data} />
         </div>
       </div>
       <div className="carousel-controls">
         <button className="carousel-arrow" onClick={() => go(current - 1)} disabled={current === 0} aria-label="Passo anterior">‹</button>
         <div className="carousel-dots" aria-label="Selecionar passo">
-          {Array.from({ length: 12 }, (_, index) => <button key={index} className={index === current ? 'active' : ''} onClick={() => go(index)} aria-label={`Ir para o passo ${index + 1}`} aria-current={index === current ? 'step' : undefined} />)}
+          {Array.from({ length: totalSteps }, (_, index) => <button key={index} className={index === current ? 'active' : ''} onClick={() => go(index)} aria-label={`Ir para o passo ${index + 1}`} aria-current={index === current ? 'step' : undefined} />)}
         </div>
-        <span className="step-counter">{String(current + 1).padStart(2, '0')} / 12</span>
-        <button className="carousel-arrow" onClick={() => go(current + 1)} disabled={current === 11} aria-label="Próximo passo">›</button>
+        <span className="step-counter">{String(current + 1).padStart(2, '0')} / {totalSteps}</span>
+        <button className="carousel-arrow" onClick={() => go(current + 1)} disabled={current === totalSteps - 1} aria-label="Próximo passo">›</button>
       </div>
     </section>
   )
