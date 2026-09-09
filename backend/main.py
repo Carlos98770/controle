@@ -36,6 +36,9 @@ class AnalysisRequest(BaseModel):
     dG: str = "1 4 0"
     nH: str = "1"
     dH: str = "1 1"
+    # Campo novo: aceita, por exemplo, `1 +- 5j` e gera os dois conjugados.
+    # Os campos separados continuam presentes para clientes existentes.
+    point: str | float | None = None
     pointReal: float = 0
     pointImag: float = 0
 

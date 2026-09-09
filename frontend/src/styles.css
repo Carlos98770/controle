@@ -217,6 +217,21 @@ main {
   line-height: 1.5;
 }
 
+.field-help {
+  margin: -2px 0 0;
+  color: var(--subtle);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.field-help code {
+  padding: 1px 4px;
+  color: #1769aa;
+  background: var(--blue-soft);
+  border-radius: 4px;
+  font: 10px 'DM Mono', monospace;
+}
+
 .group {
   padding-top: 16px;
   margin-top: 18px;

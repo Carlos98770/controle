@@ -78,6 +78,52 @@ function RouthTable({ data }) {
   )
 }
 
+function PointAngleDetails({ data, pointValues, pointResults, pointDetailsList }) {
+  return pointDetailsList.map((pointDetailsForPoint, index) => {
+    const pointValue = pointValues[index] || pointValues[0]
+    const pointResult = pointResults[index] || pointResults[0]
+    const pointLabel = pointValues.length > 1 ? `s_0^{(${index + 1})}` : 's_0'
+    const poleAngleSum = pointResult.poleAngleSum ?? data.details.poleAngleSum ?? 0
+    const zeroAngleSum = pointResult.zeroAngleSum ?? data.details.zeroAngleSum ?? 0
+    const mainAngle = -pointResult.angle
+    const normalizedAngle = ((mainAngle % 360) + 360) % 360
+
+    return (
+      <div className="calculation-block" key={`point-angle-${index}`}>
+        <Formula>{`${pointLabel}=${complexLatex(pointValue)}`}</Formula>
+        {pointDetailsForPoint.poles.map((term) => <div className="term-line" key={`p-${index}-${term.index}`}><InlineMath math={`${pointLabel}-p_${term.index}=${complexLatex(term.difference)}\\quad\\Rightarrow\\quad\\angle=${formatNumber(term.angle)}^\\circ`} /></div>)}
+        {pointDetailsForPoint.zeros.map((term) => <div className="term-line" key={`z-${index}-${term.index}`}><InlineMath math={`${pointLabel}-z_${term.index}=${complexLatex(term.difference)}\\quad\\Rightarrow\\quad\\angle=${formatNumber(term.angle)}^\\circ`} /></div>)}
+        <Formula>{`\\sum\\theta_i=\\sum\\angle(${pointLabel}-p_i)=${formatNumber(poleAngleSum)}^\\circ\\qquad\\sum\\phi_j=\\sum\\angle(${pointLabel}-z_j)=${formatNumber(zeroAngleSum)}^\\circ`}</Formula>
+        <Formula>{`\\Delta\\theta=\\sum\\theta_i-\\sum\\phi_j=${formatNumber(poleAngleSum)}-${formatNumber(zeroAngleSum)}=${formatNumber(mainAngle)}^\\circ`}</Formula>
+        <Formula>{`\\Delta\\theta_{\\mathrm{norm}}=${formatNumber(normalizedAngle)}^\\circ`}</Formula>
+        <div className={pointResult.belongs ? 'answer good' : 'answer bad'}>
+          <InlineMath math={pointResult.belongs ? '\\text{Ponto pertencente ao LGR}' : '\\text{Ponto fora do LGR}'} />
+          <InlineMath math={`\\qquad\\Delta\\theta_{\\mathrm{norm}}=${formatNumber(normalizedAngle)}^\\circ`} />
+        </div>
+      </div>
+    )
+  })
+}
+
+function PointModuleDetails({ pointValues, pointResults, pointDetailsList }) {
+  return pointDetailsList.map((pointDetailsForPoint, index) => {
+    const pointValue = pointValues[index] || pointValues[0]
+    const pointResult = pointResults[index] || pointResults[0]
+    const pointLabel = pointValues.length > 1 ? `s_0^{(${index + 1})}` : 's_0'
+
+    return (
+      <div className="calculation-block" key={`point-module-${index}`}>
+        <Formula>{`${pointLabel}=${complexLatex(pointValue)}`}</Formula>
+        {pointDetailsForPoint.poles.map((term) => <div className="term-line" key={`p-${index}-${term.index}`}><InlineMath math={`${pointLabel}-p_${term.index}=${complexLatex(term.difference)}\\quad\\Rightarrow\\quad|${pointLabel}-p_${term.index}|=${formatNumber(term.distance)}`} /></div>)}
+        {pointDetailsForPoint.zeros.map((term) => <div className="term-line" key={`z-${index}-${term.index}`}><InlineMath math={`${pointLabel}-z_${term.index}=${complexLatex(term.difference)}\\quad\\Rightarrow\\quad|${pointLabel}-z_${term.index}|=${formatNumber(term.distance)}`} /></div>)}
+        <Formula>{`\\prod_i|${pointLabel}-p_i|=${formatNumber(pointDetailsForPoint.poleProduct)}`}</Formula>
+        <Formula>{`\\prod_j|${pointLabel}-z_j|=${formatNumber(pointDetailsForPoint.zeroProduct)}`}</Formula>
+        <Formula>{`K=\\frac{${formatNumber(pointDetailsForPoint.poleProduct)}}{${formatNumber(pointDetailsForPoint.zeroProduct)}}=${formatNumber(pointResult.gain)}`}</Formula>
+      </div>
+    )
+  })
+}
+
 function StepsContent({ data }) {
   const details = data.details
   const calculations = data.stepCalculations || {}
@@ -86,13 +132,14 @@ function StepsContent({ data }) {
   const jw = calculations.jw || { reDenominator: [], imDenominator: [], reNumerator: [], imNumerator: [], cross: [], candidates: [] }
   const angleDetails = calculations.angles || { departures: [], arrivals: [] }
   const pointDetails = calculations.point || { poles: [], zeros: [], poleProduct: 1, zeroProduct: 1, gain: data.point.gain }
+  const pointValues = data.pointValues?.length ? data.pointValues : [data.pointValue]
+  const pointResults = data.points?.length ? data.points : [data.point]
+  const pointDetailsList = calculations.points?.length ? calculations.points : [pointDetails]
   const factorizedD = factorizedPolynomialLatex(data.denominator, data.poles)
   const factorizedN = factorizedPolynomialLatex(data.numerator, data.zeros)
   const roots = (values, prefix) => values.map((value, index) => <MathChip key={index} math={`${prefix ? `${prefix}_{${index + 1}}=` : ''}${complexLatex(value)}`} />)
   const sumReal = (values) => values.reduce((sum, value) => sum + Number(value.real), 0)
   const sumRealTerms = (values) => values.length ? values.map((value) => `(${formatNumber(value.real)})`).join('+') : '0'
-  const mainAngle = -data.point.angle
-  const mainAngleNormalized = ((mainAngle % 360) + 360) % 360
   const status = (valid, good = 'válido', bad = 'descartado') => <span className={valid ? 'calculation-status good' : 'calculation-status bad'}>{valid ? good : bad}</span>
 
   return (
@@ -270,29 +317,16 @@ function StepsContent({ data }) {
       </Step>
 
       <Step number={11} title="Aplicar o critério de ângulo">
-        <p>Para o ponto de teste, somamos os ângulos formados com todos os polos e zeros.</p>
+        <p>{pointValues.length > 1 ? 'Para cada ponto conjugado, somamos os ângulos formados com todos os polos e zeros.' : 'Para o ponto de teste, somamos os ângulos formados com todos os polos e zeros.'}</p>
         <Formula>{`\\sum_i\\angle(s_0-z_i)-\\sum_i\\angle(s_0-p_i)=\\pm180^\\circ(2q+1)`}</Formula>
-        <Formula>{`s_0=${complexLatex(data.pointValue)}`}</Formula>
-        {pointDetails.poles.map((term) => <div className="term-line" key={`p-${term.index}`}><InlineMath math={`s_0-p_${term.index}=${complexLatex(term.difference)}\\quad\\Rightarrow\\quad\\angle=${formatNumber(term.angle)}^\\circ`} /></div>)}
-        {pointDetails.zeros.map((term) => <div className="term-line" key={`z-${term.index}`}><InlineMath math={`s_0-z_${term.index}=${complexLatex(term.difference)}\\quad\\Rightarrow\\quad\\angle=${formatNumber(term.angle)}^\\circ`} /></div>)}
-        <Formula>{`\\sum\\theta_i=\\sum\\angle(s_0-p_i)=${formatNumber(data.point.poleAngleSum)}^\\circ\\qquad\\sum\\phi_j=\\sum\\angle(s_0-z_j)=${formatNumber(data.point.zeroAngleSum)}^\\circ`}</Formula>
-        <Formula>{`\\Delta\\theta=\\sum\\theta_i-\\sum\\phi_j=${formatNumber(data.point.poleAngleSum)}-${formatNumber(data.point.zeroAngleSum)}=${formatNumber(mainAngle)}^\\circ`}</Formula>
-        <Formula>{`\\Delta\\theta_{\\mathrm{norm}}=${formatNumber(mainAngleNormalized)}^\\circ`}</Formula>
-        <div className={data.point.belongs ? 'answer good' : 'answer bad'}>
-          <InlineMath math={data.point.belongs ? '\\text{Ponto pertencente ao LGR}' : '\\text{Ponto fora do LGR}'} />
-          <InlineMath math={`\\qquad\\Delta\\theta_{\\mathrm{norm}}=${formatNumber(mainAngleNormalized)}^\\circ`} />
-        </div>
+        <PointAngleDetails data={data} pointValues={pointValues} pointResults={pointResults} pointDetailsList={pointDetailsList} />
         <div className="step-plot"><RootLocusPlot data={data} mode="point" compact /></div>
       </Step>
 
       <Step number={12} title="Aplicar o critério de módulo">
-        <p>Calculamos cada diferença, distância, produto e finalmente o ganho que faria o ponto satisfazer o critério de módulo.</p>
+        <p>{pointValues.length > 1 ? 'Calculamos cada diferença, distância, produto e ganho para os dois pontos conjugados.' : 'Calculamos cada diferença, distância, produto e finalmente o ganho que faria o ponto satisfazer o critério de módulo.'}</p>
         <Formula>{`K=\\frac{\\prod_i|s_0-p_i|}{\\prod_j|s_0-z_j|}`}</Formula>
-        {pointDetails.poles.map((term) => <div className="term-line" key={`p-${term.index}`}><InlineMath math={`s_0-p_${term.index}=${complexLatex(term.difference)}\\quad\\Rightarrow\\quad|s_0-p_${term.index}|=${formatNumber(term.distance)}`} /></div>)}
-        {pointDetails.zeros.map((term) => <div className="term-line" key={`z-${term.index}`}><InlineMath math={`s_0-z_${term.index}=${complexLatex(term.difference)}\\quad\\Rightarrow\\quad|s_0-z_${term.index}|=${formatNumber(term.distance)}`} /></div>)}
-        <Formula>{`\\prod_i|s_0-p_i|=${formatNumber(pointDetails.poleProduct)}`}</Formula>
-        <Formula>{`\\prod_j|s_0-z_j|=${formatNumber(pointDetails.zeroProduct)}`}</Formula>
-        <Formula>{`K=\\frac{${formatNumber(pointDetails.poleProduct)}}{${formatNumber(pointDetails.zeroProduct)}}=${formatNumber(pointDetails.gain)}`}</Formula>
+        <PointModuleDetails pointValues={pointValues} pointResults={pointResults} pointDetailsList={pointDetailsList} />
       </Step>
     </>
   )

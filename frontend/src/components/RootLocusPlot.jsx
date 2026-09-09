@@ -92,20 +92,24 @@ function markerTrace(values, name, color, symbol) {
 }
 
 function pointCriterionTraces(data) {
-  const point = data.pointValue
+  const points = data.pointValues?.length ? data.pointValues : [data.pointValue]
+  const pointResults = data.points?.length ? data.points : [data.point]
   const traces = [{
-    x: [point.real], y: [point.imag], mode: 'markers', type: 'scatter', name: 'Ponto de teste',
-    marker: { color: data.point.belongs ? '#34c759' : '#ff9500', size: 13, symbol: 'diamond' },
-    hovertemplate: 's₀: %{x:.3f} + %{y:.3f}j<extra></extra>',
+    x: points.map((point) => point.real), y: points.map((point) => point.imag), mode: 'markers', type: 'scatter', name: 'Pontos de teste',
+    marker: { color: pointResults.every((item) => item.belongs) ? '#34c759' : '#ff9500', size: 13, symbol: 'diamond' },
+    text: points.map((point) => `s₀: ${point.real.toFixed(3)} ${point.imag >= 0 ? '+' : '-'} ${Math.abs(point.imag).toFixed(3)}j`),
+    hovertemplate: '%{text}<extra></extra>',
   }]
-  data.poles.forEach((root) => traces.push({
-    x: [point.real, root.real], y: [point.imag, root.imag], mode: 'lines', type: 'scatter',
-    name: 'Distância ao polo', line: { color: '#ff375f', width: 1, dash: 'dot' }, hoverinfo: 'skip', showlegend: false,
-  }))
-  data.zeros.forEach((root) => traces.push({
-    x: [point.real, root.real], y: [point.imag, root.imag], mode: 'lines', type: 'scatter',
-    name: 'Distância ao zero', line: { color: '#34c759', width: 1, dash: 'dot' }, hoverinfo: 'skip', showlegend: false,
-  }))
+  points.forEach((point) => {
+    data.poles.forEach((root) => traces.push({
+      x: [point.real, root.real], y: [point.imag, root.imag], mode: 'lines', type: 'scatter',
+      name: 'Distância ao polo', line: { color: '#ff375f', width: 1, dash: 'dot' }, hoverinfo: 'skip', showlegend: false,
+    }))
+    data.zeros.forEach((root) => traces.push({
+      x: [point.real, root.real], y: [point.imag, root.imag], mode: 'lines', type: 'scatter',
+      name: 'Distância ao zero', line: { color: '#34c759', width: 1, dash: 'dot' }, hoverinfo: 'skip', showlegend: false,
+    }))
+  })
   return traces
 }
 

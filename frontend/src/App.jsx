@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { Activity, Calculator, CircleHelp, Download, Play, Settings2 } from 'lucide-react'
 import { BlockMath, InlineMath } from 'react-katex'
-import { formatNumber, polynomialLatex } from './utils/format'
+import { complexLatex, formatNumber, polynomialLatex } from './utils/format'
 import FormField from './components/FormField'
 import RootLocusPlot from './components/RootLocusPlot'
 import StepCarousel from './components/StepCarousel'
 
-const initialForm = { nG: '1 2', dG: '1 4 0', nH: '1', dH: '1 1', pointReal: 0, pointImag: 0 }
+const initialForm = { nG: '1 2', dG: '1 4 0', nH: '1', dH: '1 1', point: '0' }
 const apiBaseUrl = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 
 function InfoCard({ title, children }) {
@@ -19,7 +19,7 @@ function ParameterPanel({ form, loading, exporting, canExport, error, onChange, 
     <p className="hint">Coeficientes em ordem decrescente de s.</p>
     <div className="group"><h4>Função G(s)</h4><FormField label="Numerador" name="nG" value={form.nG} onChange={onChange} /><FormField label="Denominador" name="dG" value={form.dG} onChange={onChange} /></div>
     <div className="group"><h4>Função H(s)</h4><FormField label="Numerador" name="nH" value={form.nH} onChange={onChange} /><FormField label="Denominador" name="dH" value={form.dH} onChange={onChange} /></div>
-    <div className="group"><h4>Ponto de teste</h4><div className="fields-inline"><FormField label="Real" name="pointReal" value={form.pointReal} onChange={onChange} /><FormField label="Imaginário" name="pointImag" value={form.pointImag} onChange={onChange} /></div></div>
+    <div className="group"><h4>Ponto de teste</h4><FormField label="Complexo" name="point" value={form.point} onChange={onChange} /><p className="field-help">Ex.: <code>1 + 5j</code> ou <code>1 +- 5j</code> para testar os dois conjugados.</p></div>
     <button className="primary" onClick={onCalculate} disabled={loading}><Play size={17} fill="currentColor" />{loading ? 'Calculando...' : 'Calcular LGR'}</button>
     <button className="secondary" onClick={onExport} disabled={!canExport || loading || exporting}><Download size={17} />{exporting ? 'Gerando PDF...' : 'Exportar resolução em PDF'}</button>
     {error && <div className="error">{error}</div>}
@@ -28,11 +28,17 @@ function ParameterPanel({ form, loading, exporting, canExport, error, onChange, 
 
 function AnalysisSummary({ data }) {
   const normalizedAngle = ((-data.point.normalized_angle % 360) + 360) % 360
+  const pointValues = data.pointValues?.length ? data.pointValues : [data.pointValue]
+  const pointResults = data.points?.length ? data.points : [data.point]
+  const pointFormula = data.pointConjugate && pointValues.length > 1
+    ? `s_0\\in\\{${pointValues.map(complexLatex).join(',\\,')}\\}`
+    : `s_0=${complexLatex(pointValues[0])}`
+  const pointsBelong = pointResults.every((item) => item.belongs)
   return <>
     <div className="result-head"><div><p className="eyebrow">RESULTADO DA ANÁLISE</p><h3>Visão geral do sistema</h3></div><span className="badge">{data.poles.length} polos · {data.zeros.length} zeros</span></div>
     <div className="cards"><div className="card chart-card"><div className="card-head"><h4>Gráfico do lugar das raízes</h4><div className="legend"><span className="blue" />LGR <span className="red" />Polos <span className="green" />Zeros</div></div><RootLocusPlot data={data} /></div><div className="card transfer-card"><h4>Função de malha aberta</h4><div className="summary-formula"><BlockMath math={`P(s)=\\frac{${polynomialLatex(data.numerator)}}{${polynomialLatex(data.denominator)}}`} /></div><p className="muted">Equação característica: <InlineMath math="D(s)+K\\,N(s)=0" /></p></div></div>
     <div className="cards three"><InfoCard title="Eixo real">{data.realSegments.length ? data.realSegments.map((segment, index) => <InlineMath key={index} math={`\\left(${segment.from == null ? '-\\infty' : formatNumber(segment.from)},\\,${formatNumber(segment.to)}\\right]`} />) : <span className="muted">Nenhum segmento.</span>}</InfoCard><InfoCard title="Centroide">{data.centroid == null ? <InlineMath math="\\text{Sem assíntotas}" /> : <InlineMath math={`\\sigma_a=${formatNumber(data.centroid)}`} />}</InfoCard><InfoCard title={<>Cruzamentos <InlineMath math="j\\omega" /></>}>{data.jwCrossings.length ? data.jwCrossings.map((item, index) => <InlineMath key={index} math={`\\omega=${formatNumber(item.omega)}\\quad K=${formatNumber(item.gain)}`} />) : <span className="muted">Nenhum encontrado.</span>}</InfoCard></div>
-    <div className="card point"><h4>Resumo do ponto de teste <InlineMath math="s_0" /></h4><div className={data.point.belongs ? 'success' : 'warning'}><InlineMath math={data.point.belongs ? '\\text{Pertence ao LGR}' : '\\text{Não pertence ao LGR}'} /><strong><InlineMath math={`K=${formatNumber(data.point.gain)}`} /></strong><span className="point-angle"><InlineMath math={`\\Delta\\theta_{\\mathrm{norm}}=${formatNumber(normalizedAngle)}^\\circ`} /></span></div></div>
+    <div className="card point"><h4>Resumo do ponto de teste <InlineMath math="s_0" /></h4><div className={pointsBelong ? 'success' : 'warning'}><InlineMath math={pointFormula} /><InlineMath math={pointsBelong ? '\\text{Pertence ao LGR}' : '\\text{Não pertence ao LGR}'} /><strong><InlineMath math={`K=${formatNumber(data.point.gain)}`} /></strong><span className="point-angle"><InlineMath math={`\\Delta\\theta_{\\mathrm{norm}}=${formatNumber(normalizedAngle)}^\\circ`} /></span></div></div>
     <StepCarousel data={data} />
   </>
 }
@@ -59,6 +65,7 @@ export default function App() {
     const payload = {
       nG: data.details.nG.join(' '), dG: data.details.dG.join(' '),
       nH: data.details.nH.join(' '), dH: data.details.dH.join(' '),
+      point: form.point,
       pointReal: data.pointValue.real, pointImag: data.pointValue.imag,
     }
     try {

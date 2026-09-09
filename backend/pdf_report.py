@@ -263,8 +263,7 @@ def _segment_list(segments):
 
 def _plot_limits(data):
     points = data.get("poles", []) + data.get("zeros", [])
-    if data.get("pointValue"):
-        points.append(data["pointValue"])
+    points.extend(data.get("pointValues") or ([data["pointValue"]] if data.get("pointValue") else []))
     if data.get("centroid") is not None:
         points.append({"real": data["centroid"], "imag": 0})
     if not points:
@@ -272,16 +271,22 @@ def _plot_limits(data):
     real_values = [float(point["real"]) for point in points]
     imag_values = [float(point["imag"]) for point in points]
     spread = max(max(real_values) - min(real_values), max(imag_values) - min(imag_values), 1.0)
-    margin = max(1.0, 0.5 * spread)
+    # Deixa uma folga maior que a usada no gráfico da tela. Isso evita que os
+    # marcadores e as retas auxiliares fiquem colados nas bordas no PDF.
+    margin = max(1.5, 0.75 * spread)
     x_limits = (min(real_values) - margin, max(real_values) + margin)
-    y_limit = max(max(abs(value) for value in imag_values) + 0.5 * margin, margin)
+    y_limit = max(max(abs(value) for value in imag_values) + 0.75 * margin, margin)
     return x_limits, (-y_limit, y_limit)
 
 
 def _make_plot(data, mode="full"):
-    figure, axis = plt.subplots(figsize=(9.4, 5.8), dpi=220)
+    # O gráfico é gerado em uma tela quadrada e é inserido no PDF com a mesma
+    # proporção. Assim, uma unidade no eixo real vale exatamente o mesmo que
+    # uma unidade no eixo imaginário.
+    figure, axis = plt.subplots(figsize=(8, 8), dpi=220)
     figure.patch.set_facecolor("white")
     axis.set_facecolor("white")
+    figure.subplots_adjust(left=0.14, right=0.96, bottom=0.12, top=0.91)
     x_limits, y_limits = _plot_limits(data)
 
     show_branches = mode in {"full", "asymptotes", "breakaway", "jw", "angles", "point"}
@@ -354,16 +359,16 @@ def _make_plot(data, mode="full"):
             textcoords="offset points", fontsize=9, color="#16803c", weight="bold",
         )
 
-    point = data.get("pointValue")
-    if point and mode in {"full", "point"}:
+    test_points = data.get("pointValues") or ([data["pointValue"]] if data.get("pointValue") else [])
+    if test_points and mode in {"full", "point"}:
         axis.scatter(
-            [point["real"]],
-            [point["imag"]],
+            [point["real"] for point in test_points],
+            [point["imag"] for point in test_points],
             marker="+",
             s=110,
             linewidths=1.5,
             color="#d97706",
-            label=f"Ponto de teste ({point['real']:.2f}, {point['imag']:.2f})",
+            label="Pontos de teste" if len(test_points) > 1 else f"Ponto de teste ({test_points[0]['real']:.2f}, {test_points[0]['imag']:.2f})",
             zorder=5,
         )
 
@@ -393,11 +398,13 @@ def _make_plot(data, mode="full"):
             marker="s", s=65, color="#ff9f0a", edgecolors="#9a5b00", linewidths=1, label="Cruzamento jω", zorder=5,
         )
 
+    point = test_points[0] if test_points else None
     if mode == "point" and point:
-        for root in data.get("poles", []):
-            axis.plot([point["real"], root["real"]], [point["imag"], root["imag"]], color="#ff375f", linestyle=":", linewidth=0.9, alpha=0.8)
-        for root in data.get("zeros", []):
-            axis.plot([point["real"], root["real"]], [point["imag"], root["imag"]], color="#34c759", linestyle=":", linewidth=0.9, alpha=0.8)
+        for test_point in test_points:
+            for root in data.get("poles", []):
+                axis.plot([test_point["real"], root["real"]], [test_point["imag"], root["imag"]], color="#ff375f", linestyle=":", linewidth=0.9, alpha=0.8)
+            for root in data.get("zeros", []):
+                axis.plot([test_point["real"], root["real"]], [test_point["imag"], root["imag"]], color="#34c759", linestyle=":", linewidth=0.9, alpha=0.8)
 
     if mode == "angles":
         angle_data = data.get("stepCalculations", {}).get("angles", {})
@@ -446,10 +453,8 @@ def _make_plot(data, mode="full"):
         "point": "Critério de ângulo no ponto de teste",
     }
     axis.set_title(titles.get(mode, titles["full"]), color="#111827", fontsize=12, pad=10)
-    figure.tight_layout()
-
     output = BytesIO()
-    figure.savefig(output, format="png", bbox_inches="tight", facecolor=figure.get_facecolor())
+    figure.savefig(output, format="png", facecolor=figure.get_facecolor())
     plt.close(figure)
     output.seek(0)
     return output
@@ -528,8 +533,15 @@ def _step(story, styles, number, title, body, formulas=()):
 
 
 def _step_plot(story, data, mode):
+    plot = _make_plot(data, mode)
+    width = 17.5 * cm
+    pixel_width, pixel_height = ImageReader(plot).getSize()
+    plot.seek(0)
+    height = width * pixel_height / pixel_width
     story.append(Spacer(1, 3))
-    story.append(Image(_make_plot(data, mode), width=17.5 * cm, height=9.8 * cm))
+    # Mantém a proporção original do PNG. Fixar largura e altura diferentes
+    # deformava a escala do plano s e fazia o LGR parecer fora de simetria.
+    story.append(Image(plot, width=width, height=height))
     story.append(Spacer(1, 6))
 
 
@@ -563,6 +575,7 @@ def generate_pdf(data):
     factorized_numerator = _factorized_latex(numerator, data.get("zeros", []))
     factorized_denominator = _factorized_latex(denominator, data.get("poles", []))
     point = data["pointValue"]
+    test_points = data.get("pointValues") or [point]
     branches = max(len(data.get("poles", [])), len(data.get("zeros", [])))
     story = []
 
@@ -573,9 +586,15 @@ def generate_pdf(data):
     story.append(_formula(f"H(s)=\\frac{{{_polynomial_latex(details['nH'])}}}{{{_polynomial_latex(details['dH'])}}}", styles))
     story.append(_formula(f"P(s)=\\frac{{{_polynomial_latex(numerator)}}}{{{_polynomial_latex(denominator)}}}", styles))
     story.append(_paragraph(_root_list(data.get("poles", []), "Polos") + " · " + _root_list(data.get("zeros", []), "Zeros"), styles["small"]))
+    test_point_text = " · ".join(_complex(value) for value in test_points)
+    story.append(_paragraph(f"Ponto(s) de teste: {test_point_text}", styles["small"]))
 
     plot = _make_plot(data)
-    image = Image(plot, width=17.8 * cm, height=10.5 * cm)
+    width = 17.8 * cm
+    pixel_width, pixel_height = ImageReader(plot).getSize()
+    plot.seek(0)
+    height = width * pixel_height / pixel_width
+    image = Image(plot, width=width, height=height)
     story.append(image)
     story.append(_paragraph("O gráfico reúne os ramos do LGR, polos, zeros, assíntotas e o ponto de teste.", styles["small"]))
     story.append(PageBreak())
@@ -789,6 +808,7 @@ def generate_pdf(data):
     complex_zeros = [complex(value["real"], value["imag"]) for value in data.get("zeros", []) if float(value["imag"]) > 1e-8]
     all_poles = [complex(value["real"], value["imag"]) for value in data.get("poles", [])]
     all_zeros = [complex(value["real"], value["imag"]) for value in data.get("zeros", [])]
+    point_results = data.get("points") or [data["point"]]
     for pole in complex_poles:
         pole_angles = [np.degrees(np.angle(pole - other)) for other in all_poles if abs(pole - other) > 1e-10]
         zero_angles = [np.degrees(np.angle(pole - zero)) for zero in all_zeros]
@@ -832,37 +852,40 @@ def generate_pdf(data):
     )
     _step_plot(story, data, "angles")
 
-    s_test = complex(point["real"], point["imag"])
     angle_formulas = [
         "\\sum\\angle(s_0-z_j)-\\sum\\angle(s_0-p_i)=\\pm180^\\circ(2q+1)",
-        f"s_0={_latex_complex(point)}",
     ]
-    pole_angle_values = []
-    for index, pole in enumerate(all_poles, start=1):
-        difference = s_test - pole
-        angle = np.degrees(np.angle(difference))
-        pole_angle_values.append(angle)
-        angle_formulas.append(
-            f"\\theta_{{p,{index}}}=\\angle(s_0-p_{{{index}}})=\\angle({_latex_complex(point)}-({_latex_complex(_complex_dict(pole))}))="
-            f"\\angle({_latex_complex(_complex_dict(difference))})={_latex_number(angle)}^\\circ"
-        )
-    zero_angle_values = []
-    for index, zero in enumerate(all_zeros, start=1):
-        difference = s_test - zero
-        angle = np.degrees(np.angle(difference))
-        zero_angle_values.append(angle)
-        angle_formulas.append(
-            f"\\theta_{{z,{index}}}=\\angle(s_0-z_{{{index}}})=\\angle({_latex_complex(point)}-({_latex_complex(_complex_dict(zero))}))="
-            f"\\angle({_latex_complex(_complex_dict(difference))})={_latex_number(angle)}^\\circ"
-        )
-    angle_formulas.extend([
-        f"\\sum\\theta_p={_latex_number(sum(pole_angle_values))}^\\circ,\\quad \\sum\\theta_z={_latex_number(sum(zero_angle_values))}^\\circ",
-        f"\\Delta\\theta=\\sum\\theta_p-\\sum\\theta_z={_latex_number(sum(pole_angle_values))}-({_latex_number(sum(zero_angle_values))})={_latex_number(-data['point']['angle'])}^\\circ",
-        f"\\Delta\\theta_{{\\mathrm{{norm}}}}={_latex_number((-data['point']['angle']) % 360)}^\\circ",
-    ])
+    for point_index, test_point in enumerate(test_points):
+        point_result = point_results[point_index] if point_index < len(point_results) else point_results[0]
+        point_label = f"s_0^{{({point_index + 1})}}" if len(test_points) > 1 else "s_0"
+        s_test = complex(test_point["real"], test_point["imag"])
+        angle_formulas.append(f"{point_label}={_latex_complex(test_point)}")
+        pole_angle_values = []
+        for index, pole in enumerate(all_poles, start=1):
+            difference = s_test - pole
+            angle = np.degrees(np.angle(difference))
+            pole_angle_values.append(angle)
+            angle_formulas.append(
+                f"\\theta_{{p,{index}}}=\\angle({point_label}-p_{{{index}}})=\\angle({_latex_complex(test_point)}-({_latex_complex(_complex_dict(pole))}))="
+                f"\\angle({_latex_complex(_complex_dict(difference))})={_latex_number(angle)}^\\circ"
+            )
+        zero_angle_values = []
+        for index, zero in enumerate(all_zeros, start=1):
+            difference = s_test - zero
+            angle = np.degrees(np.angle(difference))
+            zero_angle_values.append(angle)
+            angle_formulas.append(
+                f"\\theta_{{z,{index}}}=\\angle({point_label}-z_{{{index}}})=\\angle({_latex_complex(test_point)}-({_latex_complex(_complex_dict(zero))}))="
+                f"\\angle({_latex_complex(_complex_dict(difference))})={_latex_number(angle)}^\\circ"
+            )
+        angle_formulas.extend([
+            f"\\sum\\theta_p={_latex_number(sum(pole_angle_values))}^\\circ,\\quad \\sum\\theta_z={_latex_number(sum(zero_angle_values))}^\\circ",
+            f"\\Delta\\theta=\\sum\\theta_p-\\sum\\theta_z={_latex_number(sum(pole_angle_values))}-({_latex_number(sum(zero_angle_values))})={_latex_number(-point_result['angle'])}^\\circ",
+            f"\\Delta\\theta_{{\\mathrm{{norm}}}}={_latex_number((-point_result['angle']) % 360)}^\\circ",
+        ])
     _step(
         story, styles, 11, "Testar o critério de ângulo",
-        ["Somamos os ângulos formados com todos os polos e zeros e comparamos o resultado com um múltiplo ímpar de 180 graus."],
+        ["Somamos os ângulos formados com todos os polos e zeros e comparamos o resultado com um múltiplo ímpar de 180 graus. Para uma entrada conjugada, repetimos o cálculo para os dois pontos; os resultados são simétricos."],
         angle_formulas,
     )
     _step_plot(story, data, "point")
@@ -870,34 +893,39 @@ def generate_pdf(data):
     module_formulas = [
         "K=\\frac{\\prod_i\\left|s_0-p_i\\right|}{\\prod_j\\left|s_0-z_j\\right|}",
     ]
-    pole_distances = []
-    zero_distances = []
-    for index, pole in enumerate(all_poles, start=1):
-        difference = s_test - pole
-        distance = abs(difference)
-        pole_distances.append(distance)
-        module_formulas.append(
-            f"\\left|s_0-p_{{{index}}}\\right|=\\left|{_latex_complex(point)}-({_latex_complex(_complex_dict(pole))})\\right|="
-            f"\\left|{_latex_complex(_complex_dict(difference))}\\right|={_latex_number(distance)}"
-        )
-    for index, zero in enumerate(all_zeros, start=1):
-        difference = s_test - zero
-        distance = abs(difference)
-        zero_distances.append(distance)
-        module_formulas.append(
-            f"\\left|s_0-z_{{{index}}}\\right|=\\left|{_latex_complex(point)}-({_latex_complex(_complex_dict(zero))})\\right|="
-            f"\\left|{_latex_complex(_complex_dict(difference))}\\right|={_latex_number(distance)}"
-        )
-    product_poles = float(np.prod(pole_distances)) if pole_distances else 1.0
-    product_zeros = float(np.prod(zero_distances)) if zero_distances else 1.0
-    module_formulas.extend([
-        f"\\prod_i\\left|s_0-p_i\\right|={_latex_number(product_poles)}",
-        f"\\prod_j\\left|s_0-z_j\\right|={_latex_number(product_zeros)}",
-        f"K=\\frac{{{_latex_number(product_poles)}}}{{{_latex_number(product_zeros)}}}={_latex_number(data['point']['gain'])}",
-    ])
+    for point_index, test_point in enumerate(test_points):
+        point_result = point_results[point_index] if point_index < len(point_results) else point_results[0]
+        point_label = f"s_0^{{({point_index + 1})}}" if len(test_points) > 1 else "s_0"
+        s_test = complex(test_point["real"], test_point["imag"])
+        pole_distances = []
+        zero_distances = []
+        module_formulas.append(f"{point_label}={_latex_complex(test_point)}")
+        for index, pole in enumerate(all_poles, start=1):
+            difference = s_test - pole
+            distance = abs(difference)
+            pole_distances.append(distance)
+            module_formulas.append(
+                f"\\left|{point_label}-p_{{{index}}}\\right|=\\left|{_latex_complex(test_point)}-({_latex_complex(_complex_dict(pole))})\\right|="
+                f"\\left|{_latex_complex(_complex_dict(difference))}\\right|={_latex_number(distance)}"
+            )
+        for index, zero in enumerate(all_zeros, start=1):
+            difference = s_test - zero
+            distance = abs(difference)
+            zero_distances.append(distance)
+            module_formulas.append(
+                f"\\left|{point_label}-z_{{{index}}}\\right|=\\left|{_latex_complex(test_point)}-({_latex_complex(_complex_dict(zero))})\\right|="
+                f"\\left|{_latex_complex(_complex_dict(difference))}\\right|={_latex_number(distance)}"
+            )
+        product_poles = float(np.prod(pole_distances)) if pole_distances else 1.0
+        product_zeros = float(np.prod(zero_distances)) if zero_distances else 1.0
+        module_formulas.extend([
+            f"\\prod_i\\left|{point_label}-p_i\\right|={_latex_number(product_poles)}",
+            f"\\prod_j\\left|{point_label}-z_j\\right|={_latex_number(product_zeros)}",
+            f"K=\\frac{{{_latex_number(product_poles)}}}{{{_latex_number(product_zeros)}}}={_latex_number(point_result['gain'])}",
+        ])
     _step(
         story, styles, 12, "Aplicar o critério de módulo",
-        ["Calculamos cada distância, os dois produtos e finalmente o ganho K."],
+        ["Calculamos cada distância, os dois produtos e finalmente o ganho K para cada ponto de teste."],
         module_formulas,
     )
 

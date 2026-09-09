@@ -31,6 +31,10 @@ npm run dev
 
 Acesse `http://localhost:5173`. A API fica disponível em `http://localhost:8000/docs`.
 
+No campo **Ponto de teste**, informe uma coordenada como `1 + 5j`. Para analisar
+automaticamente os dois pontos conjugados, use `1 +- 5j` (também é aceito `1 ± 5j`).
+As chamadas antigas da API, com `pointReal` e `pointImag`, continuam válidas.
+
 O frontend usa Node.js `22.12+` (versão registrada em `frontend/.nvmrc`).
 
 Se o arquivo `frontend/.env.local` não existir ou `VITE_API_URL` estiver vazio, o Vite usa o proxy local de `vite.config.js`.

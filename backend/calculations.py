@@ -1,5 +1,82 @@
 import numpy as np
 import sympy as sp
+import re
+
+
+_COMPLEX_NUMBER = r"[+-]?(?:\d+(?:[\.,]\d*)?|\.\d+)(?:e[+-]?\d+)?"
+
+
+def _parse_real_text(value):
+    """Converte um trecho numérico aceitando ponto ou vírgula decimal."""
+    try:
+        number = float(str(value).strip().replace(",", "."))
+    except (TypeError, ValueError):
+        raise ValueError("O ponto de teste deve estar no formato 1 + 5j, 1 - 5j ou 1 +- 5j.") from None
+    if not np.isfinite(number):
+        raise ValueError("O ponto de teste deve conter números finitos.")
+    return number
+
+
+def _parse_single_complex(value):
+    """Lê uma coordenada complexa sem usar eval/expressões arbitrárias."""
+    text = str(value).strip().lower().replace("−", "-").replace(" ", "")
+    text = text.replace(",", ".").replace("i", "j")
+    if not text:
+        raise ValueError("Informe o ponto de teste no formato 1 + 5j ou 1 +- 5j.")
+
+    if text in {"j", "+j"}:
+        return complex(0, 1)
+    if text == "-j":
+        return complex(0, -1)
+
+    if "j" not in text:
+        return complex(_parse_real_text(text), 0)
+
+    if text.count("j") != 1 or not text.endswith("j"):
+        raise ValueError("O ponto de teste deve estar no formato 1 + 5j, 1 - 5j ou 1 +- 5j.")
+    without_j = text[:-1]
+    if without_j in {"", "+", "-"}:
+        return complex(0, 1 if without_j != "-" else -1)
+
+    # O Python entende as formas normalizadas 1+5j, 1-5j e 5j, mas a
+    # mensagem de erro precisa ser controlada para não vazar detalhes internos.
+    if not re.fullmatch(rf"(?:{_COMPLEX_NUMBER}(?:[+-]{_COMPLEX_NUMBER})?|[+-]?{_COMPLEX_NUMBER})", without_j):
+        raise ValueError("O ponto de teste deve estar no formato 1 + 5j, 1 - 5j ou 1 +- 5j.")
+    try:
+        result = complex(text)
+    except ValueError:
+        raise ValueError("O ponto de teste deve estar no formato 1 + 5j, 1 - 5j ou 1 +- 5j.") from None
+    if not np.isfinite(result.real) or not np.isfinite(result.imag):
+        raise ValueError("O ponto de teste deve conter números finitos.")
+    return result
+
+
+def parse_test_points(value):
+    """Retorna um ponto ou o par conjugado indicado por `+-`/`±`.
+
+    Exemplos aceitos: `1`, `1 + 5j`, `1 - 5j`, `1 +- 5j` e `1 ± 5j`.
+    Para manter a API anterior, números reais também são aceitos diretamente.
+    """
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        number = _parse_real_text(value)
+        return [complex(number, 0)]
+    if value is None:
+        raise ValueError("Informe o ponto de teste no formato 1 + 5j ou 1 +- 5j.")
+
+    text = str(value).strip().lower().replace("−", "-").replace(" ", "")
+    text = text.replace(",", ".").replace("i", "j")
+    marker = next((candidate for candidate in ("+/-", "±", "+-") if candidate in text), None)
+    if marker is not None:
+        left, right = text.split(marker, 1)
+        if not right.endswith("j"):
+            raise ValueError("Para indicar o conjugado, use o formato 1 +- 5j.")
+        real = _parse_real_text(left)
+        magnitude = abs(_parse_single_complex(right).imag)
+        if magnitude < 1e-12:
+            return [complex(real, 0)]
+        return [complex(real, magnitude), complex(real, -magnitude)]
+
+    return [_parse_single_complex(text)]
 
 
 def parse_coefs(value):
@@ -147,7 +224,8 @@ def testar_ponto(point, zeros, poles):
     belongs = abs(abs(normalized) - 180) < 5
     gain = np.prod([abs(point - p) for p in poles]) / (np.prod([abs(point - z) for z in zeros]) if len(zeros) else 1)
     return {"angle": float(angle), "normalized_angle": float(normalized), "belongs": bool(belongs), "gain": float(gain),
-            "pole_angles": [float(x) for x in pole_angles], "zero_angles": [float(x) for x in zero_angles]}
+            "pole_angles": [float(x) for x in pole_angles], "zero_angles": [float(x) for x in zero_angles],
+            "poleAngleSum": float(sum(pole_angles)), "zeroAngleSum": float(sum(zero_angles))}
 
 
 def fatorados(values, variable="s", leading=1.0):
@@ -374,7 +452,17 @@ def analyze(payload):
     num, den = fazer_passo1(n_g, d_g, n_h, d_h)
     zeros, poles = np.roots(num), np.roots(den)
     gains, branches = calcular_lgr(num, den)
-    point = complex(float(payload.get("pointReal", 0)), float(payload.get("pointImag", 0)))
+    point_input = payload.get("point")
+    if point_input is None or str(point_input).strip() == "":
+        # Compatibilidade com clientes que ainda enviam as duas coordenadas.
+        try:
+            point = complex(float(payload.get("pointReal", 0)), float(payload.get("pointImag", 0)))
+        except (TypeError, ValueError):
+            raise ValueError("As coordenadas do ponto de teste devem ser numéricas.") from None
+        test_points = [point]
+    else:
+        test_points = parse_test_points(point_input)
+        point = test_points[0]
     departures, arrivals = angulos_extremos(zeros, poles)
     centroid, asymptotes = calcular_assintotas(zeros, poles)
     routh = tabela_routh(den, num)
@@ -382,7 +470,8 @@ def analyze(payload):
     breakaway_details = detalhes_breakaway(num, den, zeros, poles)
     jw_details = detalhes_jw(den, num)
     angle_details = detalhes_angulos(zeros, poles)
-    point_details = detalhes_ponto(point, zeros, poles)
+    point_results = [testar_ponto(test_point, zeros, poles) for test_point in test_points]
+    point_details = [detalhes_ponto(test_point, zeros, poles) for test_point in test_points]
     details = {
         "nG": n_g.tolist(), "dG": d_g.tolist(), "nH": n_h.tolist(), "dH": d_h.tolist(),
         "dNumerator": derivada_coeficientes(num).tolist(), "dDenominator": derivada_coeficientes(den).tolist(),
@@ -393,7 +482,10 @@ def analyze(payload):
     return {"details": details, "numerator": num.tolist(), "denominator": den.tolist(), "zeros": roots_json(zeros), "poles": roots_json(poles),
             "realSegments": achar_segmentos_eixo_real(zeros, poles), "centroid": centroid,
             "asymptoteAngles": asymptotes, "breakaway": achar_breakaway(num, den, poles, zeros),
-            "jwCrossings": cruzamento_jw(den, num), "routh": routh, "pointValue": complex_json(point), "point": testar_ponto(point, zeros, poles),
+            "jwCrossings": cruzamento_jw(den, num), "routh": routh, "pointValue": complex_json(point),
+            "pointValues": [complex_json(test_point) for test_point in test_points],
+            "point": point_results[0], "points": point_results,
+            "pointConjugate": len(test_points) == 2,
             "departureAngles": departures, "arrivalAngles": arrivals,
             "factorizedNumerator": fatorados(zeros, leading=num[0]), "factorizedDenominator": fatorados(poles, leading=den[0]),
             "stepCalculations": {
@@ -401,6 +493,9 @@ def analyze(payload):
                 "breakaway": breakaway_details,
                 "jw": jw_details,
                 "angles": angle_details,
-                "point": point_details,
+                # Mantém `point` no singular para consumidores antigos; a
+                # lista completa atende à entrada com pontos conjugados.
+                "point": point_details[0],
+                "points": point_details,
             },
             "lgr": [{"gain": float(g), "roots": roots_json(row)} for g, row in zip(gains, branches)]}
