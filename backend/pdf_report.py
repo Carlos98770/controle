@@ -271,19 +271,20 @@ def _plot_limits(data):
     real_values = [float(point["real"]) for point in points]
     imag_values = [float(point["imag"]) for point in points]
     spread = max(max(real_values) - min(real_values), max(imag_values) - min(imag_values), 1.0)
-    # Deixa uma folga maior que a usada no gráfico da tela. Isso evita que os
-    # marcadores e as retas auxiliares fiquem colados nas bordas no PDF.
-    margin = max(1.5, 0.75 * spread)
+    # Aproxima o enquadramento dentro do mesmo quadro físico do PDF. A escala
+    # dos eixos continua igual, mas o excesso de espaço em volta dos pontos é
+    # reduzido para o gráfico não parecer afastado demais.
+    margin = max(0.8, 0.28 * spread)
     x_limits = (min(real_values) - margin, max(real_values) + margin)
-    y_limit = max(max(abs(value) for value in imag_values) + 0.75 * margin, margin)
+    y_limit = max(max(abs(value) for value in imag_values) + 0.35 * margin, margin)
     return x_limits, (-y_limit, y_limit)
 
 
-def _make_plot(data, mode="full"):
-    # O gráfico é gerado em uma tela quadrada e é inserido no PDF com a mesma
-    # proporção. Assim, uma unidade no eixo real vale exatamente o mesmo que
-    # uma unidade no eixo imaginário.
-    figure, axis = plt.subplots(figsize=(8, 8), dpi=220)
+def _make_plot(data, mode="full", figsize=(9.4, 5.8)):
+    # A área física do relatório permanece retangular, mas o eixo s mantém
+    # escala igual nos dois sentidos. O espaço lateral restante evita que a
+    # inserção no PDF distorça o plano complexo.
+    figure, axis = plt.subplots(figsize=figsize, dpi=220)
     figure.patch.set_facecolor("white")
     axis.set_facecolor("white")
     figure.subplots_adjust(left=0.14, right=0.96, bottom=0.12, top=0.91)
@@ -533,14 +534,11 @@ def _step(story, styles, number, title, body, formulas=()):
 
 
 def _step_plot(story, data, mode):
-    plot = _make_plot(data, mode)
-    width = 17.5 * cm
-    pixel_width, pixel_height = ImageReader(plot).getSize()
-    plot.seek(0)
-    height = width * pixel_height / pixel_width
+    width, height = 17.5 * cm, 9.8 * cm
+    plot = _make_plot(data, mode, figsize=(width / 72, height / 72))
     story.append(Spacer(1, 3))
-    # Mantém a proporção original do PNG. Fixar largura e altura diferentes
-    # deformava a escala do plano s e fazia o LGR parecer fora de simetria.
+    # Mantém o tamanho original do quadro; a proporção do PNG é a mesma da
+    # imagem inserida, então não há esticamento.
     story.append(Image(plot, width=width, height=height))
     story.append(Spacer(1, 6))
 
@@ -590,11 +588,8 @@ def generate_pdf(data):
     test_point_text = " · ".join(_complex(value) for value in test_points)
     story.append(_paragraph(f"Ponto(s) de teste: {test_point_text}", styles["small"]))
 
-    plot = _make_plot(data)
-    width = 17.8 * cm
-    pixel_width, pixel_height = ImageReader(plot).getSize()
-    plot.seek(0)
-    height = width * pixel_height / pixel_width
+    width, height = 17.8 * cm, 10.5 * cm
+    plot = _make_plot(data, figsize=(width / 72, height / 72))
     image = Image(plot, width=width, height=height)
     story.append(image)
     story.append(_paragraph("O gráfico reúne os ramos do LGR, polos, zeros, assíntotas e o ponto de teste.", styles["small"]))
