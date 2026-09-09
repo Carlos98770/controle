@@ -293,6 +293,32 @@ input:focus {
   opacity: .6;
 }
 
+.secondary {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 12px;
+  margin-top: 9px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border: 1px solid #b8d8ff;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.secondary:hover:not(:disabled) {
+  background: #e1efff;
+  border-color: #8fc2ff;
+}
+
+.secondary:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
 .error {
   padding: 10px;
   margin-top: 12px;
@@ -609,6 +635,64 @@ input:focus {
 
 .formula .katex-display > .katex {
   font-size: 1.02em;
+}
+
+.step-plot {
+  width: 100%;
+  height: 315px;
+  margin: 18px 0 4px;
+  overflow: hidden;
+  background: #101827;
+  border: 1px solid #263750;
+  border-radius: 10px;
+}
+
+.step-plot .plotly,
+.plotly-compact {
+  width: 100%;
+  height: 313px;
+  min-height: 313px;
+}
+
+.calculation-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 13px;
+  padding: 9px 10px;
+  margin: 7px 0;
+  color: var(--muted);
+  background: #fafbfd;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+}
+
+.calculation-status {
+  padding: 3px 7px;
+  border-radius: 5px;
+  font: 11px 'DM Mono', monospace;
+}
+
+.calculation-status.good {
+  color: #248a5a;
+  background: #eaf8f0;
+}
+
+.calculation-status.bad {
+  color: #a46400;
+  background: #fff4e5;
+}
+
+.calculation-block {
+  padding: 3px 0 8px;
+  margin: 8px 0 14px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.term-line {
+  padding: 4px 10px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .answer {

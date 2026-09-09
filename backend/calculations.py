@@ -150,7 +150,7 @@ def testar_ponto(point, zeros, poles):
             "pole_angles": [float(x) for x in pole_angles], "zero_angles": [float(x) for x in zero_angles]}
 
 
-def fatorados(values, variable="s"):
+def fatorados(values, variable="s", leading=1.0):
     parts = []
     for value in values:
         if abs(value.imag) < 1e-8:
@@ -158,7 +158,10 @@ def fatorados(values, variable="s"):
             parts.append(f"({variable} {sign} {abs(value.real):.4g})")
         else:
             parts.append(f"({variable} - ({value.real:.4g} {'+' if value.imag >= 0 else '-'} {abs(value.imag):.4g}j))")
-    return " ".join(parts) or "1"
+    coefficient = ""
+    if abs(leading - 1) >= 1e-10:
+        coefficient = "-" if abs(leading + 1) < 1e-10 else f"{leading:.4g}"
+    return f"{coefficient}{' '.join(parts) or '1'}"
 
 
 def angulos_extremos(zeros, poles):
@@ -200,10 +203,167 @@ def tabela_routh(den, num):
     def latex_cell(cell):
         return sp.latex(sp.factor(sp.simplify(cell)))
 
+    conditions = []
+    critical_gains = set()
+    for index, row in enumerate(table):
+        first = sp.factor(sp.simplify(row[0]))
+        if not first.has(k):
+            continue
+        try:
+            solution = sp.solve_univariate_inequality(first > 0, k)
+            condition = sp.latex(solution)
+        except Exception:
+            condition = None
+        conditions.append({
+            "power": degree - index,
+            "expression": latex_cell(first),
+            "condition": condition,
+        })
+        try:
+            roots = sp.solve(sp.Eq(first, 0), k)
+            for root in roots:
+                if root.is_real and root.is_positive:
+                    critical_gains.add(float(root))
+        except Exception:
+            pass
+
     return {
         "powers": list(range(degree, -1, -1)),
         "rows": [[latex_cell(cell) for cell in row] for row in table],
+        "conditions": conditions,
+        "criticalGains": sorted(critical_gains),
     }
+
+
+def detalhes_segmentos_reais(zeros, polos):
+    real_values = [float(value.real) for value in list(polos) + list(zeros) if abs(value.imag) < 1e-8]
+    boundaries = sorted(set(round(value, 8) for value in real_values), reverse=True)
+    intervals = []
+    for left, right in zip(boundaries[1:], boundaries[:-1]):
+        test = (left + right) / 2
+        right_count = sum(value > test + 1e-10 for value in real_values)
+        intervals.append({
+            "from": left, "to": right, "test": test,
+            "rightCount": int(right_count), "belongs": bool(right_count % 2),
+        })
+    if boundaries and len(real_values) % 2:
+        test = boundaries[-1] - max(1.0, abs(boundaries[-1]) * 0.1)
+        intervals.append({
+            "from": None, "to": boundaries[-1], "test": test,
+            "rightCount": int(len(real_values)), "belongs": True,
+        })
+    return intervals
+
+
+def detalhes_breakaway(num, den, zeros, poles):
+    d_num = derivada_coeficientes(num)
+    d_den = derivada_coeficientes(den)
+    equation = np.polysub(np.convolve(num, d_den), np.convolve(den, d_num))
+    while len(equation) > 1 and abs(equation[0]) < 1e-12:
+        equation = equation[1:]
+    real_pz = [value.real for value in list(poles) + list(zeros) if abs(value.imag) < 1e-8]
+    candidates = []
+    for root in np.roots(equation) if len(equation) > 1 else []:
+        denominator_value = np.polyval(num, root)
+        gain = None if abs(denominator_value) < 1e-12 else -np.polyval(den, root) / denominator_value
+        real_axis = bool(abs(root.imag) < 1e-6)
+        right_count = int(sum(value > root.real + 1e-10 for value in real_pz)) if real_axis else None
+        belongs = bool(real_axis and right_count % 2 == 1) if real_axis else False
+        gain_real_positive = bool(gain is not None and abs(gain.imag) < 1e-6 and gain.real > 0)
+        valid = bool((belongs if real_axis else gain_real_positive) and gain_real_positive)
+        candidates.append({
+            "root": complex_json(root),
+            "gain": None if gain is None else complex_json(gain),
+            "realAxis": real_axis,
+            "rightCount": right_count,
+            "belongs": belongs,
+            "gainRealPositive": gain_real_positive,
+            "valid": valid,
+        })
+    return {
+        "derivativeNumerator": d_num.tolist(),
+        "derivativeDenominator": d_den.tolist(),
+        "equation": equation.tolist(),
+        "candidates": candidates,
+    }
+
+
+def detalhes_jw(den, num):
+    re_d, im_d = separar_jw(den)
+    re_n, im_n = separar_jw(num)
+    cross = np.polysub(np.convolve(re_d, im_n), np.convolve(im_d, re_n))
+    while len(cross) > 1 and abs(cross[0]) < 1e-12:
+        cross = cross[1:]
+    candidates = []
+    for root in np.roots(cross) if len(cross) > 1 else []:
+        if abs(root.imag) > 1e-6:
+            candidates.append({"root": complex_json(root), "valid": False})
+            continue
+        omega = float(root.real)
+        im_n_value, im_d_value = np.polyval(im_n, omega), np.polyval(im_d, omega)
+        re_n_value, re_d_value = np.polyval(re_n, omega), np.polyval(re_d, omega)
+        gain = -im_d_value / im_n_value if abs(im_n_value) > 1e-12 else (
+            -re_d_value / re_n_value if abs(re_n_value) > 1e-12 else np.nan
+        )
+        candidates.append({
+            "root": complex_json(root), "omega": omega,
+            "reD": float(re_d_value), "imD": float(im_d_value),
+            "reN": float(re_n_value), "imN": float(im_n_value),
+            "gain": float(gain) if np.isfinite(gain) else None,
+            "valid": bool(omega >= 0 and np.isfinite(gain) and gain > 1e-10),
+        })
+    return {
+        "reDenominator": re_d.tolist(), "imDenominator": im_d.tolist(),
+        "reNumerator": re_n.tolist(), "imNumerator": im_n.tolist(),
+        "cross": cross.tolist(), "candidates": candidates,
+    }
+
+
+def detalhes_angulos(zeros, poles):
+    departures, arrivals = [], []
+    for index, pole in enumerate(poles):
+        if abs(pole.imag) < 1e-8:
+            continue
+        other_poles = [other for other_index, other in enumerate(poles) if other_index != index]
+        pole_terms = [{"other": complex_json(other), "difference": complex_json(pole - other),
+                       "angle": float(np.degrees(np.angle(pole - other)))} for other in other_poles]
+        zero_terms = [{"zero": complex_json(zero), "difference": complex_json(pole - zero),
+                       "angle": float(np.degrees(np.angle(pole - zero)))} for zero in zeros]
+        pole_sum, zero_sum = sum(item["angle"] for item in pole_terms), sum(item["angle"] for item in zero_terms)
+        angle = (180 - pole_sum + zero_sum + 180) % 360 - 180
+        departures.append({"point": complex_json(pole), "poleTerms": pole_terms,
+                           "zeroTerms": zero_terms, "poleSum": float(pole_sum),
+                           "zeroSum": float(zero_sum), "angle": float(angle)})
+    for index, zero in enumerate(zeros):
+        if abs(zero.imag) < 1e-8:
+            continue
+        other_zeros = [other for other_index, other in enumerate(zeros) if other_index != index]
+        zero_terms = [{"other": complex_json(other), "difference": complex_json(zero - other),
+                       "angle": float(np.degrees(np.angle(zero - other)))} for other in other_zeros]
+        pole_terms = [{"pole": complex_json(pole), "difference": complex_json(zero - pole),
+                       "angle": float(np.degrees(np.angle(zero - pole)))} for pole in poles]
+        zero_sum, pole_sum = sum(item["angle"] for item in zero_terms), sum(item["angle"] for item in pole_terms)
+        angle = (180 - zero_sum + pole_sum + 180) % 360 - 180
+        arrivals.append({"point": complex_json(zero), "zeroTerms": zero_terms,
+                         "poleTerms": pole_terms, "zeroSum": float(zero_sum),
+                         "poleSum": float(pole_sum), "angle": float(angle)})
+    return {"departures": departures, "arrivals": arrivals}
+
+
+def detalhes_ponto(point, zeros, poles):
+    pole_terms, zero_terms = [], []
+    for index, pole in enumerate(poles, start=1):
+        difference = point - pole
+        pole_terms.append({"index": index, "root": complex_json(pole), "difference": complex_json(difference),
+                           "angle": float(np.degrees(np.angle(difference))), "distance": float(abs(difference))})
+    for index, zero in enumerate(zeros, start=1):
+        difference = point - zero
+        zero_terms.append({"index": index, "root": complex_json(zero), "difference": complex_json(difference),
+                           "angle": float(np.degrees(np.angle(difference))), "distance": float(abs(difference))})
+    pole_product = float(np.prod([item["distance"] for item in pole_terms])) if pole_terms else 1.0
+    zero_product = float(np.prod([item["distance"] for item in zero_terms])) if zero_terms else 1.0
+    return {"poles": pole_terms, "zeros": zero_terms, "poleProduct": pole_product,
+            "zeroProduct": zero_product, "gain": float(pole_product / zero_product)}
 
 
 def analyze(payload):
@@ -217,6 +377,12 @@ def analyze(payload):
     point = complex(float(payload.get("pointReal", 0)), float(payload.get("pointImag", 0)))
     departures, arrivals = angulos_extremos(zeros, poles)
     centroid, asymptotes = calcular_assintotas(zeros, poles)
+    routh = tabela_routh(den, num)
+    real_axis_details = detalhes_segmentos_reais(zeros, poles)
+    breakaway_details = detalhes_breakaway(num, den, zeros, poles)
+    jw_details = detalhes_jw(den, num)
+    angle_details = detalhes_angulos(zeros, poles)
+    point_details = detalhes_ponto(point, zeros, poles)
     details = {
         "nG": n_g.tolist(), "dG": d_g.tolist(), "nH": n_h.tolist(), "dH": d_h.tolist(),
         "dNumerator": derivada_coeficientes(num).tolist(), "dDenominator": derivada_coeficientes(den).tolist(),
@@ -225,9 +391,16 @@ def analyze(payload):
         "zeroAngleSum": float(sum(np.degrees(np.angle(point-z)) for z in zeros)),
     }
     return {"details": details, "numerator": num.tolist(), "denominator": den.tolist(), "zeros": roots_json(zeros), "poles": roots_json(poles),
-            "realSegments": achar_segmentos_eixo_real(zeros, poles), "centroid": calcular_assintotas(zeros, poles)[0],
+            "realSegments": achar_segmentos_eixo_real(zeros, poles), "centroid": centroid,
             "asymptoteAngles": asymptotes, "breakaway": achar_breakaway(num, den, poles, zeros),
-            "jwCrossings": cruzamento_jw(den, num), "routh": tabela_routh(den, num), "pointValue": complex_json(point), "point": testar_ponto(point, zeros, poles),
+            "jwCrossings": cruzamento_jw(den, num), "routh": routh, "pointValue": complex_json(point), "point": testar_ponto(point, zeros, poles),
             "departureAngles": departures, "arrivalAngles": arrivals,
-            "factorizedNumerator": fatorados(zeros), "factorizedDenominator": fatorados(poles),
+            "factorizedNumerator": fatorados(zeros, leading=num[0]), "factorizedDenominator": fatorados(poles, leading=den[0]),
+            "stepCalculations": {
+                "realAxis": real_axis_details,
+                "breakaway": breakaway_details,
+                "jw": jw_details,
+                "angles": angle_details,
+                "point": point_details,
+            },
             "lgr": [{"gain": float(g), "roots": roots_json(row)} for g, row in zip(gains, branches)]}

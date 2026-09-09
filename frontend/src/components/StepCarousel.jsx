@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { BlockMath, InlineMath } from 'react-katex'
 import { complexLatex, factorizedPolynomialLatex, formatNumber, polynomialLatex } from '../utils/format'
+import RootLocusPlot from './RootLocusPlot'
 
 function Formula({ children, className = '' }) {
   return (
@@ -8,6 +9,10 @@ function Formula({ children, className = '' }) {
       <BlockMath math={children} />
     </div>
   )
+}
+
+function FormulaList({ formulas = [] }) {
+  return formulas.map((formula, index) => <Formula key={index}>{formula}</Formula>)
 }
 
 function MathChip({ math, className = '' }) {
@@ -75,38 +80,73 @@ function RouthTable({ data }) {
 
 function StepsContent({ data }) {
   const details = data.details
-  const factorizedDenominator = factorizedPolynomialLatex(data.denominator, data.poles)
-  const factorizedNumerator = factorizedPolynomialLatex(data.numerator, data.zeros)
-  const gainFactor = factorizedNumerator === '1' ? 'K' : `K\\,\\left(${factorizedNumerator}\\right)`
-  const roots = (values) => values.map((value, index) => (
-    <MathChip key={index} math={complexLatex(value)} />
-  ))
+  const calculations = data.stepCalculations || {}
+  const realAxis = calculations.realAxis || []
+  const breakaway = calculations.breakaway || { derivativeNumerator: details.dNumerator, derivativeDenominator: details.dDenominator, equation: [], candidates: [] }
+  const jw = calculations.jw || { reDenominator: [], imDenominator: [], reNumerator: [], imNumerator: [], cross: [], candidates: [] }
+  const angleDetails = calculations.angles || { departures: [], arrivals: [] }
+  const pointDetails = calculations.point || { poles: [], zeros: [], poleProduct: 1, zeroProduct: 1, gain: data.point.gain }
+  const factorizedD = factorizedPolynomialLatex(data.denominator, data.poles)
+  const factorizedN = factorizedPolynomialLatex(data.numerator, data.zeros)
+  const roots = (values, prefix) => values.map((value, index) => <MathChip key={index} math={`${prefix ? `${prefix}_{${index + 1}}=` : ''}${complexLatex(value)}`} />)
+  const sumReal = (values) => values.reduce((sum, value) => sum + Number(value.real), 0)
+  const sumRealTerms = (values) => values.length ? values.map((value) => `(${formatNumber(value.real)})`).join('+') : '0'
+  const mainAngle = -data.point.angle
+  const mainAngleNormalized = ((mainAngle % 360) + 360) % 360
+  const status = (valid, good = 'válido', bad = 'descartado') => <span className={valid ? 'calculation-status good' : 'calculation-status bad'}>{valid ? good : bad}</span>
 
   return (
     <>
       <Step number={1} title="Montar a função de transferência e o polinômio característico">
-        <p>Partimos dos dados informados e multiplicamos numeradores e denominadores.</p>
-        <Formula>{`G(s)=\\frac{${polynomialLatex(details.nG)}}{${polynomialLatex(details.dG)}}`}</Formula>
+        <p>Partimos dos blocos informados e calculamos todos os produtos antes de montar a equação característica.</p>
+        <Formula>{`G(s)=K\\,\\frac{${polynomialLatex(details.nG)}}{${polynomialLatex(details.dG)}}`}</Formula>
         <Formula>{`H(s)=\\frac{${polynomialLatex(details.nH)}}{${polynomialLatex(details.dH)}}`}</Formula>
-        <Formula>{`\\begin{aligned}N(s)&=N_G(s)N_H(s)\\\\&=${polynomialLatex(details.nG)}\\cdot${polynomialLatex(details.nH)}\\\\&=${polynomialLatex(data.numerator)}\\end{aligned}`}</Formula>
-        <Formula>{`\\begin{aligned}D(s)&=D_G(s)D_H(s)\\\\&=${polynomialLatex(details.dG)}\\cdot${polynomialLatex(details.dH)}\\\\&=${polynomialLatex(data.denominator)}\\end{aligned}`}</Formula>
-        <p>Para a realimentação negativa, isolamos a equação que define os polos do sistema em malha fechada.</p>
+        <FormulaList formulas={[
+          `G(s)H(s)=K\\,\\frac{N_G(s)N_H(s)}{D_G(s)D_H(s)}=K\\,\\frac{${polynomialLatex(data.numerator)}}{${polynomialLatex(data.denominator)}}=K\\,P(s)`,
+          `N(s)=N_G(s)N_H(s)=(${polynomialLatex(details.nG)})(${polynomialLatex(details.nH)})=${polynomialLatex(data.numerator)}`,
+          `D(s)=D_G(s)D_H(s)=(${polynomialLatex(details.dG)})(${polynomialLatex(details.dH)})=${polynomialLatex(data.denominator)}`,
+        ]} />
+        <p>Para realimentação negativa, os polos de malha fechada são encontrados fazendo o denominador igual a zero.</p>
         <Formula>{`1+K\\,L(s)=0`}</Formula>
-        <Formula>{`\\begin{aligned}P(s,K)&=D(s)+K\\,N(s)\\\\&=${polynomialLatex(data.denominator)}+K\\left(${polynomialLatex(data.numerator)}\\right)=0\\end{aligned}`}</Formula>
-        <Formula>{`\\begin{aligned}P(s,K)&=D(s)+K\\,N(s)\\\\&=${factorizedDenominator}+${gainFactor}=0\\end{aligned}`}</Formula>
+        <Formula>{`P(s,K)=D(s)+K\\,N(s)`}</Formula>
+        <Formula>{`P(s,K)=${polynomialLatex(data.denominator)}+K\\left(${polynomialLatex(data.numerator)}\\right)=0`}</Formula>
+        <Formula>{`P(s,K)=D(s)+K\\,N(s)=0\\quad\\Longrightarrow\\quad P(s,K)=${factorizedD}+K\\left(${factorizedN}\\right)=0`}</Formula>
+        <Formula>{`P(s,K)=a(K)\\prod_{i=1}^{n_p}\\left(s-s_i(K)\\right),\\qquad P(s_i(K),K)=0`}</Formula>
+        <p>A forma fatorada do polinômio característico depende do valor de <InlineMath math="K" />. Para cada ganho, calculamos as raízes de <InlineMath math="P(s,K)" />; a forma fatorada parametrizada acima é a forma usada no LGR.</p>
       </Step>
 
-      <Step number={2} title="Identificar polos e zeros">
-        <p>Resolvemos separadamente o numerador e o denominador da função de malha aberta.</p>
-        <Formula>{`${polynomialLatex(data.numerator)}=0\\Longrightarrow\\text{zeros}`}</Formula>
-        <div className="root-line"><MathLabel>Zeros</MathLabel>{data.zeros.length ? roots(data.zeros) : <span className="muted">Nenhum zero finito.</span>}</div>
-        <Formula>{`${polynomialLatex(data.denominator)}=0\\Longrightarrow\\text{polos}`}</Formula>
-        <div className="root-line"><MathLabel>Polos</MathLabel>{roots(data.poles)}</div>
+      <Step number={2} title="Obter a forma fatorada de P(s)">
+        <p>Agora fatoramos numerador e denominador de <InlineMath math="P(s)=N(s)/D(s)" /> pelas raízes calculadas.</p>
+        <Formula>{`N(s)=${polynomialLatex(data.numerator)}= ${factorizedN}`}</Formula>
+        <Formula>{`D(s)=${polynomialLatex(data.denominator)}= ${factorizedD}`}</Formula>
+        <Formula>{`P(s)=\\frac{N(s)}{D(s)}=\\frac{${factorizedN}}{${factorizedD}}`}</Formula>
+        <div className="root-line"><MathLabel>Zeros de N</MathLabel>{data.zeros.length ? roots(data.zeros, 'z') : <span className="muted">Nenhum zero finito.</span>}</div>
+        <div className="root-line"><MathLabel>Polos de D</MathLabel>{roots(data.poles, 'p')}</div>
       </Step>
 
-      <Step number={3} title="Determinar os segmentos do eixo real">
-        <p>Em cada intervalo, contamos os polos e zeros à direita. O segmento pertence ao LGR quando essa quantidade é ímpar.</p>
-        <Formula>{`N_{\\mathrm{direita}}(s)\\equiv1\\pmod{2}\\Longrightarrow s\\in\\mathcal{L}`}</Formula>
+      <Step number={3} title="Polos e zeros no plano s">
+        <p>Resolvemos os polinômios do numerador e do denominador e localizamos cada raiz no plano complexo.</p>
+        <FormulaList formulas={[
+          `${polynomialLatex(data.numerator)}=0\\Longrightarrow z_i`,
+          `${polynomialLatex(data.denominator)}=0\\Longrightarrow p_i`,
+        ]} />
+        <div className="root-line"><MathLabel>Zeros</MathLabel>{data.zeros.length ? roots(data.zeros, 'z') : <span className="muted">Nenhum zero finito.</span>}</div>
+        <div className="root-line"><MathLabel>Polos</MathLabel>{roots(data.poles, 'p')}</div>
+        <div className="step-plot"><RootLocusPlot data={data} mode="poles" compact /></div>
+      </Step>
+
+      <Step number={4} title="Determinar os segmentos do eixo real">
+        <p>Em cada intervalo, escolhemos um ponto de teste, contamos polos e zeros à direita e aplicamos a regra da quantidade ímpar.</p>
+        <Formula>{`N_{\\mathrm{direita}}(s_t)=\\#\\{p_i,z_i:\\operatorname{Re}(p_i,z_i)>s_t\\}`}</Formula>
+        <Formula>{`N_{\\mathrm{direita}}(s_t)\\equiv1\\pmod{2}\\Longrightarrow s_t\\in\\mathcal{L}`}</Formula>
+        {realAxis.map((segment, index) => (
+          <div className="calculation-row" key={index}>
+            <InlineMath math={`I_${index + 1}=(${segment.from == null ? '-\\infty' : formatNumber(segment.from)},${formatNumber(segment.to)}]`} />
+            <InlineMath math={`\\quad s_t=${formatNumber(segment.test)}`} />
+            <InlineMath math={`\\quad N_{\\mathrm{direita}}=${segment.rightCount}`} />
+            {status(segment.belongs, 'ímpar → pertence', 'par → não pertence')}
+          </div>
+        ))}
         <div className="answer">
           {data.realSegments.length
             ? data.realSegments.map((segment, index) => (
@@ -114,89 +154,145 @@ function StepsContent({ data }) {
             ))
             : <span>Nenhum intervalo válido.</span>}
         </div>
-      </Step>
-
-      <Step number={4} title="Verificar simetria">
-        <p>Como os coeficientes do polinômio característico são reais, as raízes complexas aparecem em pares conjugados.</p>
-        <Formula>{`s\\in\\mathcal{L}\\Longrightarrow s^*\\in\\mathcal{L}\\qquad\\mathcal{L}\\text{ é simétrico em relação ao eixo real}`}</Formula>
+        <div className="step-plot"><RootLocusPlot data={data} mode="real" compact /></div>
       </Step>
 
       <Step number={5} title="Calcular o número de ramos">
-        <p>Cada ramo começa em um polo e termina em um zero ou no infinito.</p>
-        <Formula>{`L=\\max\\left(n_p,n_z\\right)=\\max\\left(${data.poles.length},${data.zeros.length}\\right)=${Math.max(data.poles.length, data.zeros.length)}\\;\\text{ramos}`}</Formula>
+        <p>Cada ramo começa em um polo quando <InlineMath math="K=0" /> e termina em um zero quando <InlineMath math="K\to\infty" /> ou segue para o infinito.</p>
+        <Formula>{`n_p=${data.poles.length},\\qquad n_z=${data.zeros.length}`}</Formula>
+        <Formula>{`L=\\max(n_p,n_z)=\\max(${data.poles.length},${data.zeros.length})=${Math.max(data.poles.length, data.zeros.length)}\\;\\text{ramos}`}</Formula>
       </Step>
 
-      <Step number={6} title="Encontrar centroide e assíntotas">
-        <p>As assíntotas descrevem o comportamento dos ramos que seguem para o infinito.</p>
+      <Step number={6} title="Verificar simetria">
+        <p>Como os coeficientes de <InlineMath math="P(s,K)" /> são reais para <InlineMath math="K\in\mathbb{R}" />, toda raiz complexa tem sua conjugada.</p>
+        <Formula>{`P(s,K)\\in\\mathbb{R}[s]\\Longrightarrow s_i=\\sigma+j\\omega\\;\\Rightarrow\\;s_i^*=\\sigma-j\\omega`}</Formula>
+        <Formula>{`\\mathcal{L}\\text{ é simétrico em relação ao eixo real}`}</Formula>
+      </Step>
+
+      <Step number={7} title="Encontrar centroide e assíntotas">
+        <p>As assíntotas descrevem os ramos que seguem para o infinito. Primeiro calculamos a quantidade de assíntotas e o centroide.</p>
         {data.centroid == null ? (
           <Formula>{`n_a=n_p-n_z=${data.poles.length}-${data.zeros.length}=0\\Longrightarrow\\text{não há assíntotas}`}</Formula>
         ) : (
           <>
-            <Formula>{`n_a=n_p-n_z=${data.poles.length}-${data.zeros.length}\\qquad\\sigma_a=\\frac{\\sum p_i-\\sum z_i}{n_a}=${formatNumber(data.centroid)}`}</Formula>
+            <Formula>{`n_a=n_p-n_z=${data.poles.length}-${data.zeros.length}=${data.poles.length - data.zeros.length}`}</Formula>
+            <Formula>{`\\sum\\operatorname{Re}(p_i)=${sumRealTerms(data.poles)}=${formatNumber(sumReal(data.poles))},\\qquad\\sum\\operatorname{Re}(z_i)=${sumRealTerms(data.zeros)}=${formatNumber(sumReal(data.zeros))}`}</Formula>
+            <Formula>{`\\sigma_a=\\frac{\\sum p_i-\\sum z_i}{n_a}=\\frac{${formatNumber(sumReal(data.poles))}-${formatNumber(sumReal(data.zeros))}}{${data.poles.length - data.zeros.length}}=${formatNumber(data.centroid)}`}</Formula>
             <Formula>{`\\phi_q=\\frac{(2q+1)180^\\circ}{n_a}\\qquad q=0,1,\\ldots,n_a-1`}</Formula>
+            <FormulaList formulas={data.asymptoteAngles.map((angle, index) => `\\phi_${index}=\\frac{(2\\cdot${index}+1)180^\\circ}{${data.poles.length - data.zeros.length}}=${formatNumber(angle)}^\\circ`)} />
             <div className="answer">
               {data.asymptoteAngles.map((angle, index) => <MathChip key={index} math={`\\phi_{${index}}=${formatNumber(angle)}^\\circ`} />)}
             </div>
+            <div className="step-plot"><RootLocusPlot data={data} mode="asymptotes" compact /></div>
           </>
         )}
       </Step>
 
-      <Step number={7} title="Localizar pontos de breakaway / break-in">
-        <p>Isolamos o ganho e procuramos os pontos em que sua derivada é nula.</p>
-        <Formula>{`K(s)=-\\frac{D(s)}{N(s)}\\qquad\\frac{dK}{ds}=0`}</Formula>
-        <Formula>{`D'(s)N(s)-D(s)N'(s)=0`}</Formula>
-        <Formula>{`N'(s)=${polynomialLatex(details.dNumerator)}`}</Formula>
-        <Formula>{`D'(s)=${polynomialLatex(details.dDenominator)}`}</Formula>
+      <Step number={8} title="Localizar pontos de breakaway / break-in">
+        <p>Isolamos <InlineMath math="K(s)" />, derivamos e resolvemos a equação resultante. Em seguida, testamos cada candidato no eixo real e no ganho positivo.</p>
+        <Formula>{`P(s,K)=0\\Longrightarrow K(s)=-\\frac{D(s)}{N(s)}`}</Formula>
+        <Formula>{`\\frac{dK}{ds}=0\\Longrightarrow N(s)D'(s)-D(s)N'(s)=0`}</Formula>
+        <Formula>{`N(s)=${polynomialLatex(data.numerator)}\\qquad D(s)=${polynomialLatex(data.denominator)}`}</Formula>
+        <Formula>{`N'(s)=${polynomialLatex(breakaway.derivativeNumerator)}`}</Formula>
+        <Formula>{`D'(s)=${polynomialLatex(breakaway.derivativeDenominator)}`}</Formula>
+        <Formula>{`${polynomialLatex(breakaway.equation)}=0`}</Formula>
+        {breakaway.candidates.map((item, index) => (
+          <div className="calculation-row" key={index}>
+            <InlineMath math={`s_${index + 1}=${complexLatex(item.root)}`} />
+            {item.gain ? <InlineMath math={`\\quad K(s_${index + 1})=${complexLatex(item.gain)}`} /> : <InlineMath math="\\quad K\\;\\text{indefinido}" />}
+            {item.realAxis && <InlineMath math={`\\quad N_{\\mathrm{direita}}=${item.rightCount}`} />}
+            {status(item.valid)}
+          </div>
+        ))}
         <div className="answer">
           {data.breakaway.length
             ? data.breakaway.map((item, index) => <MathChip key={index} math={`s=${complexLatex(item.point)}\\qquad K=${formatNumber(item.gain)}`} />)
             : <span>Nenhum ponto válido encontrado.</span>}
         </div>
+        <div className="step-plot"><RootLocusPlot data={data} mode="breakaway" compact /></div>
       </Step>
 
-      <Step number={8} title="Aplicar o critério de estabilidade de Routh-Hurwitz">
-        <p>Construímos a tabela a partir da equação característica. Para estabilidade, os elementos da primeira coluna devem ser positivos.</p>
-        <Formula>{`D(s)+K\\,N(s)=0\\qquad K>0`}</Formula>
+      <Step number={9} title="Aplicar Routh-Hurwitz e encontrar o cruzamento jω">
+        <p>Construímos a tabela de Routh a partir de <InlineMath math="P(s,K)" />. Para estabilidade, os elementos da primeira coluna devem manter o mesmo sinal.</p>
+        <Formula>{`P(s,K)=${polynomialLatex(data.denominator)}+K\\left(${polynomialLatex(data.numerator)}\\right)=0\\qquad K>0`}</Formula>
         <RouthTable data={data} />
+        <p>Condições obtidas da primeira coluna:</p>
+        <FormulaList formulas={(data.routh.conditions || data.routh.rows.map((row, index) => ({ power: data.routh.powers[index], expression: row[0] || '0', condition: null }))).map((item) => `s^{${item.power}}:\\quad ${item.expression}>0${item.condition ? `\\;\\Longrightarrow\\;${item.condition}` : ''}`)} />
+        {(data.routh.criticalGains || []).map((gain, index) => <Formula key={index}>{`K_{\\mathrm{crit}}=${formatNumber(gain)}`}</Formula>)}
+        <p>Para o cruzamento com o eixo imaginário, substituímos <InlineMath math="s=j\\omega" /> e separamos as partes real e imaginária.</p>
+        <Formula>{`D(j\\omega)=D_R(\\omega)+jD_I(\\omega),\\qquad N(j\\omega)=N_R(\\omega)+jN_I(\\omega)`}</Formula>
+        <FormulaList formulas={[
+          `D_R(\\omega)=${polynomialLatex(jw.reDenominator, '\\omega')}`,
+          `D_I(\\omega)=${polynomialLatex(jw.imDenominator, '\\omega')}`,
+          `N_R(\\omega)=${polynomialLatex(jw.reNumerator, '\\omega')}`,
+          `N_I(\\omega)=${polynomialLatex(jw.imNumerator, '\\omega')}`,
+          `D_R(\\omega)N_I(\\omega)-D_I(\\omega)N_R(\\omega)=0\\Longrightarrow ${polynomialLatex(jw.cross, '\\omega')}=0`,
+        ]} />
+        {jw.candidates.map((item, index) => (
+          <div className="calculation-row" key={index}>
+            {item.omega != null
+              ? <InlineMath math={`\\omega_${index + 1}=${formatNumber(item.omega)}`} />
+              : <InlineMath math={`\\omega_${index + 1}=${complexLatex(item.root)}`} />}
+            {item.omega != null && <InlineMath math={`\\quad D_R=${formatNumber(item.reD)},D_I=${formatNumber(item.imD)},N_R=${formatNumber(item.reN)},N_I=${formatNumber(item.imN)}`} />}
+            {item.gain != null && <InlineMath math={`\\quad K=${formatNumber(item.gain)}`} />}
+            {status(item.valid)}
+          </div>
+        ))}
         <div className="answer">
           {data.jwCrossings.length
             ? data.jwCrossings.map((item, index) => <MathChip key={index} math={`K=${formatNumber(item.gain)}\\qquad\\omega=${formatNumber(item.omega)}\\;\\mathrm{rad/s}`} />)
             : <span>Nenhum cruzamento positivo encontrado.</span>}
         </div>
+        <div className="step-plot"><RootLocusPlot data={data} mode="jw" compact /></div>
       </Step>
 
-      <Step number={9} title="Calcular ângulos de partida e chegada">
-        <p>Aplicamos a condição de fase nos polos e zeros complexos.</p>
+      <Step number={10} title="Calcular ângulos de partida e chegada">
+        <p>Aplicamos a condição de fase termo a termo nos polos e zeros complexos.</p>
         <Formula>{`\\theta_{d,k}=180^\\circ-\\sum_{j\\ne k}\\angle(p_k-p_j)+\\sum_j\\angle(p_k-z_j)`}</Formula>
-        <div className="root-line"><MathLabel>Partida</MathLabel>{data.departureAngles.length ? data.departureAngles.map((item, index) => <MathChip key={index} math={`${complexLatex(item.point)}\\longrightarrow${formatNumber(item.angle)}^\\circ`} />) : <span className="muted">Nenhum polo complexo.</span>}</div>
+        {angleDetails.departures.length ? angleDetails.departures.map((item, index) => (
+          <div className="calculation-block" key={index}>
+            <Formula>{`p_k=${complexLatex(item.point)}\\qquad\\sum\\angle(p_k-p_j)=${formatNumber(item.poleSum)}^\\circ\\qquad\\sum\\angle(p_k-z_j)=${formatNumber(item.zeroSum)}^\\circ`}</Formula>
+            {item.poleTerms.map((term, termIndex) => <div className="term-line" key={`p-${termIndex}`}><InlineMath math={`\\angle(${complexLatex(term.difference)})=${formatNumber(term.angle)}^\\circ`} /></div>)}
+            {item.zeroTerms.map((term, termIndex) => <div className="term-line" key={`z-${termIndex}`}><InlineMath math={`\\angle(${complexLatex(term.difference)})=${formatNumber(term.angle)}^\\circ`} /></div>)}
+            <div className="answer"><MathChip math={`\\theta_d=${formatNumber((item.angle + 360) % 360)}^\\circ\\;\\left(\\equiv${formatNumber(item.angle)}^\\circ\\right)`} /></div>
+          </div>
+        )) : <span className="muted">Nenhum polo complexo.</span>}
         <Formula>{`\\theta_{a,k}=180^\\circ+\\sum_j\\angle(z_k-p_j)-\\sum_{j\\ne k}\\angle(z_k-z_j)`}</Formula>
-        <div className="root-line"><MathLabel>Chegada</MathLabel>{data.arrivalAngles.length ? data.arrivalAngles.map((item, index) => <MathChip key={index} math={`${complexLatex(item.point)}\\longrightarrow${formatNumber(item.angle)}^\\circ`} />) : <span className="muted">Nenhum zero complexo.</span>}</div>
+        {angleDetails.arrivals.length ? angleDetails.arrivals.map((item, index) => (
+          <div className="calculation-block" key={index}>
+            <Formula>{`z_k=${complexLatex(item.point)}\\qquad\\sum\\angle(z_k-z_j)=${formatNumber(item.zeroSum)}^\\circ\\qquad\\sum\\angle(z_k-p_i)=${formatNumber(item.poleSum)}^\\circ`}</Formula>
+            {item.zeroTerms.map((term, termIndex) => <div className="term-line" key={`z-${termIndex}`}><InlineMath math={`\\angle(${complexLatex(term.difference)})=${formatNumber(term.angle)}^\\circ`} /></div>)}
+            {item.poleTerms.map((term, termIndex) => <div className="term-line" key={`p-${termIndex}`}><InlineMath math={`\\angle(${complexLatex(term.difference)})=${formatNumber(term.angle)}^\\circ`} /></div>)}
+            <div className="answer"><MathChip math={`\\theta_a=${formatNumber((item.angle + 360) % 360)}^\\circ\\;\\left(\\equiv${formatNumber(item.angle)}^\\circ\\right)`} /></div>
+          </div>
+        )) : <span className="muted">Nenhum zero complexo.</span>}
+        <div className="step-plot"><RootLocusPlot data={data} mode="angles" compact /></div>
       </Step>
 
-      <Step number={10} title="Traçar o lugar geométrico das raízes">
-        <p>Para cada valor de ganho, resolvemos a equação característica e conectamos as raízes correspondentes.</p>
-        <Formula>{`D(s)+K\\,N(s)=0\\qquad K\\geq0`}</Formula>
-        <Formula>{`\\mathcal{L}=\\left\\{s\\in\\mathbb{C}:D(s)+K\\,N(s)=0,\\;K\\geq0\\right\\}`}</Formula>
-        <div className="mini-stat"><b>{data.lgr.length}</b> valores de <InlineMath math="K" /> calculados.</div>
-      </Step>
-
-      <Step number={11} title="Testar o critério de ângulo">
+      <Step number={11} title="Aplicar o critério de ângulo">
         <p>Para o ponto de teste, somamos os ângulos formados com todos os polos e zeros.</p>
+        <Formula>{`\\sum_i\\angle(s_0-z_i)-\\sum_i\\angle(s_0-p_i)=\\pm180^\\circ(2q+1)`}</Formula>
         <Formula>{`s_0=${complexLatex(data.pointValue)}`}</Formula>
-        <div className="root-line"><MathLabel>Polos</MathLabel><RootChips values={data.point.pole_angles.map((angle) => ({ real: angle, imag: 0 }))} prefix="\\theta" /></div>
-        <div className="root-line"><MathLabel>Zeros</MathLabel>{data.point.zero_angles.length ? <RootChips values={data.point.zero_angles.map((angle) => ({ real: angle, imag: 0 }))} prefix="\\varphi" /> : <span className="muted">Soma dos ângulos: 0°.</span>}</div>
-        <Formula>{`\\Delta\\theta=\\sum\\angle(s_0-z_i)-\\sum\\angle(s_0-p_i)=${formatNumber(data.point.angle)}^\\circ`}</Formula>
+        {pointDetails.poles.map((term) => <div className="term-line" key={`p-${term.index}`}><InlineMath math={`s_0-p_${term.index}=${complexLatex(term.difference)}\\quad\\Rightarrow\\quad\\angle=${formatNumber(term.angle)}^\\circ`} /></div>)}
+        {pointDetails.zeros.map((term) => <div className="term-line" key={`z-${term.index}`}><InlineMath math={`s_0-z_${term.index}=${complexLatex(term.difference)}\\quad\\Rightarrow\\quad\\angle=${formatNumber(term.angle)}^\\circ`} /></div>)}
+        <Formula>{`\\sum\\theta_i=\\sum\\angle(s_0-p_i)=${formatNumber(data.point.poleAngleSum)}^\\circ\\qquad\\sum\\phi_j=\\sum\\angle(s_0-z_j)=${formatNumber(data.point.zeroAngleSum)}^\\circ`}</Formula>
+        <Formula>{`\\Delta\\theta=\\sum\\theta_i-\\sum\\phi_j=${formatNumber(data.point.poleAngleSum)}-${formatNumber(data.point.zeroAngleSum)}=${formatNumber(mainAngle)}^\\circ`}</Formula>
+        <Formula>{`\\Delta\\theta_{\\mathrm{norm}}=${formatNumber(mainAngleNormalized)}^\\circ`}</Formula>
         <div className={data.point.belongs ? 'answer good' : 'answer bad'}>
           <InlineMath math={data.point.belongs ? '\\text{Ponto pertencente ao LGR}' : '\\text{Ponto fora do LGR}'} />
-          <InlineMath math={`\\qquad\\Delta\\theta_{\\mathrm{norm}}=${formatNumber(data.point.normalized_angle)}^\\circ`} />
+          <InlineMath math={`\\qquad\\Delta\\theta_{\\mathrm{norm}}=${formatNumber(mainAngleNormalized)}^\\circ`} />
         </div>
+        <div className="step-plot"><RootLocusPlot data={data} mode="point" compact /></div>
       </Step>
 
       <Step number={12} title="Aplicar o critério de módulo">
-        <p>Calculamos cada distância entre o ponto de teste, os polos e os zeros.</p>
-        <div className="root-line"><MathLabel>Polos</MathLabel>{details.poleDistances.map((distance, index) => <MathChip key={index} math={`\\left|s_0-p_{${index + 1}}\\right|=${formatNumber(distance)}`} />)}</div>
-        <div className="root-line"><MathLabel>Zeros</MathLabel>{details.zeroDistances.length ? details.zeroDistances.map((distance, index) => <MathChip key={index} math={`\\left|s_0-z_{${index + 1}}\\right|=${formatNumber(distance)}`} />) : <span className="muted">Produto dos zeros: 1.</span>}</div>
-        <Formula>{`K=\\frac{${details.poleDistances.map(formatNumber).join('\\cdot')}}{${details.zeroDistances.length ? details.zeroDistances.map(formatNumber).join('\\cdot') : '1'}}=${formatNumber(data.point.gain)}`}</Formula>
+        <p>Calculamos cada diferença, distância, produto e finalmente o ganho que faria o ponto satisfazer o critério de módulo.</p>
+        <Formula>{`K=\\frac{\\prod_i|s_0-p_i|}{\\prod_j|s_0-z_j|}`}</Formula>
+        {pointDetails.poles.map((term) => <div className="term-line" key={`p-${term.index}`}><InlineMath math={`s_0-p_${term.index}=${complexLatex(term.difference)}\\quad\\Rightarrow\\quad|s_0-p_${term.index}|=${formatNumber(term.distance)}`} /></div>)}
+        {pointDetails.zeros.map((term) => <div className="term-line" key={`z-${term.index}`}><InlineMath math={`s_0-z_${term.index}=${complexLatex(term.difference)}\\quad\\Rightarrow\\quad|s_0-z_${term.index}|=${formatNumber(term.distance)}`} /></div>)}
+        <Formula>{`\\prod_i|s_0-p_i|=${formatNumber(pointDetails.poleProduct)}`}</Formula>
+        <Formula>{`\\prod_j|s_0-z_j|=${formatNumber(pointDetails.zeroProduct)}`}</Formula>
+        <Formula>{`K=\\frac{${formatNumber(pointDetails.poleProduct)}}{${formatNumber(pointDetails.zeroProduct)}}=${formatNumber(pointDetails.gain)}`}</Formula>
       </Step>
     </>
   )

@@ -2,14 +2,17 @@ import os
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import numpy as np
 
 try:
     from .calculations import analyze
+    from .pdf_report import generate_pdf
 except ImportError:
     # Mantém o comando local `uvicorn main:app --app-dir backend` funcionando.
     from calculations import analyze
+    from pdf_report import generate_pdf
 
 app = FastAPI(title="LGR API", version="1.0.0")
 configured_origins = [
@@ -46,5 +49,19 @@ def health():
 def calculate(request: AnalysisRequest):
     try:
         return analyze(request.model_dump())
+    except (ValueError, np.linalg.LinAlgError) as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+
+@app.post("/api/export/pdf")
+def export_pdf(request: AnalysisRequest):
+    try:
+        analysis = analyze(request.model_dump())
+        pdf = generate_pdf(analysis)
+        return StreamingResponse(
+            pdf,
+            media_type="application/pdf",
+            headers={"Content-Disposition": 'attachment; filename="lgr-resolucao.pdf"'},
+        )
     except (ValueError, np.linalg.LinAlgError) as error:
         raise HTTPException(status_code=400, detail=str(error))

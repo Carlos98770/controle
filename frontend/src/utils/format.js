@@ -14,7 +14,7 @@ export const complexLatex = (value) => {
   return `${real} ${imag < 0 ? '-' : '+'} ${imaginary}`
 }
 
-export const polynomialLatex = (values = []) =>
+export const polynomialLatex = (values = [], variable = 's') =>
   values
     .map((coefficient, index) => {
       const power = values.length - index - 1
@@ -29,7 +29,7 @@ export const polynomialLatex = (values = []) =>
         : formatNumber(absolute)
       const term = power === 0
         ? factor
-        : `${factor}s${power === 1 ? '' : `^{${power}}`}`
+        : `${factor}${variable}${power === 1 ? '' : `^{${power}}`}`
 
       return `${index === 0 && number > 0 ? '' : ` ${sign} `}${term}`
     })
