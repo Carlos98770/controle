@@ -287,7 +287,7 @@ def _make_plot(data, mode="full", figsize=(9.4, 5.8)):
     figure, axis = plt.subplots(figsize=figsize, dpi=220)
     figure.patch.set_facecolor("white")
     axis.set_facecolor("white")
-    figure.subplots_adjust(left=0.14, right=0.96, bottom=0.23, top=0.9)
+    figure.subplots_adjust(left=0.14, right=0.96, bottom=0.3, top=0.9)
     x_limits, y_limits = _plot_limits(data)
 
     show_branches = mode in {"full", "asymptotes", "breakaway", "jw", "angles", "point"}
@@ -440,7 +440,7 @@ def _make_plot(data, mode="full", figsize=(9.4, 5.8)):
     handles, labels = axis.get_legend_handles_labels()
     if handles:
         axis.legend(
-            handles, labels, loc="upper center", bbox_to_anchor=(0.5, -0.2),
+            handles, labels, loc="upper center", bbox_to_anchor=(0.5, -0.32),
             ncol=min(3, len(labels)), facecolor="white", labelcolor="#111827",
             edgecolor="#94a3b8", framealpha=0.95, fontsize=8, borderaxespad=0,
         )
