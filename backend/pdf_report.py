@@ -576,6 +576,7 @@ def generate_pdf(data):
     factorized_denominator = _factorized_latex(denominator, data.get("poles", []))
     point = data["pointValue"]
     test_points = data.get("pointValues") or [point]
+    point_results = data.get("points") or [data["point"]]
     branches = max(len(data.get("poles", [])), len(data.get("zeros", [])))
     story = []
 
@@ -598,6 +599,24 @@ def generate_pdf(data):
     story.append(image)
     story.append(_paragraph("O gráfico reúne os ramos do LGR, polos, zeros, assíntotas e o ponto de teste.", styles["small"]))
     story.append(PageBreak())
+
+    story.append(_paragraph("Resumo do ponto de teste (s₀)", styles["heading"]))
+    if len(test_points) > 1:
+        point_formula = "s_0\\in\\left\\{" + ",\\;".join(_latex_complex(value) for value in test_points) + "\\right\\}"
+    else:
+        point_formula = f"s_0={_latex_complex(test_points[0])}"
+    story.append(_formula(point_formula, styles))
+    for point_index, test_point in enumerate(test_points):
+        point_result = point_results[point_index] if point_index < len(point_results) else point_results[0]
+        point_label = f"s₀({point_index + 1})" if len(test_points) > 1 else "s₀"
+        normalized_angle = ((-float(point_result["normalized_angle"]) % 360) + 360) % 360
+        status = "Pertence ao LGR" if point_result["belongs"] else "Não pertence ao LGR"
+        story.append(_paragraph(f"{point_label} = {_complex(test_point)} — {status}", styles["body"]))
+        story.append(_formula(
+            f"K={_latex_number(point_result['gain'])}\\qquad"
+            f"\\Delta\\theta_{{\\mathrm{{norm}}}}={_latex_number(normalized_angle)}^\\circ",
+            styles,
+        ))
 
     _step(
         story, styles, 1, "Montar a função de transferência e o polinômio característico",
@@ -808,7 +827,6 @@ def generate_pdf(data):
     complex_zeros = [complex(value["real"], value["imag"]) for value in data.get("zeros", []) if float(value["imag"]) > 1e-8]
     all_poles = [complex(value["real"], value["imag"]) for value in data.get("poles", [])]
     all_zeros = [complex(value["real"], value["imag"]) for value in data.get("zeros", [])]
-    point_results = data.get("points") or [data["point"]]
     for pole in complex_poles:
         pole_angles = [np.degrees(np.angle(pole - other)) for other in all_poles if abs(pole - other) > 1e-10]
         zero_angles = [np.degrees(np.angle(pole - zero)) for zero in all_zeros]
